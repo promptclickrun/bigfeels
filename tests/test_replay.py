@@ -15,6 +15,7 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(report['policies']['bigfeels']['expected_covered'], report['expected_total'])
         self.assertGreater(report['policies']['simple_hybrid']['forbidden_exposures'], 0)
         self.assertEqual(report['policies']['no_memory']['expected_covered'], 0)
+        self.assertEqual(report['policies']['simple_hybrid']['fixture_embedding_calls'], 6)
 
 
 if __name__ == '__main__':

@@ -11,7 +11,7 @@
       "citation_rate": null,
       "correct_abstentions": 3,
       "context_bytes": 0,
-      "elapsed_ms": 0.012,
+      "elapsed_ms": 0.016,
       "fixture_embedding_calls": 0,
       "paid_provider_calls": 0,
       "cases": [
@@ -59,7 +59,7 @@
       "citation_rate": 1.0,
       "correct_abstentions": 0,
       "context_bytes": 7074,
-      "elapsed_ms": 0.095,
+      "elapsed_ms": 0.101,
       "fixture_embedding_calls": 0,
       "paid_provider_calls": 0,
       "cases": [
@@ -107,8 +107,8 @@
       "citation_rate": 1.0,
       "correct_abstentions": 2,
       "context_bytes": 2363,
-      "elapsed_ms": 0.216,
-      "fixture_embedding_calls": 25,
+      "elapsed_ms": 0.214,
+      "fixture_embedding_calls": 6,
       "paid_provider_calls": 0,
       "cases": [
         {
@@ -155,7 +155,7 @@
       "citation_rate": 1.0,
       "correct_abstentions": 3,
       "context_bytes": 1265,
-      "elapsed_ms": 5.46,
+      "elapsed_ms": 6.505,
       "fixture_embedding_calls": 6,
       "paid_provider_calls": 0,
       "cases": [

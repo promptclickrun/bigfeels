@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>bigfeels memory</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="/" aria-label="bigfeels memory home">
+      <span class="brand-mark" aria-hidden="true">b</span>
+      <span><strong>bigfeels</strong><small>memory</small></span>
+    </a>
+    <button id="disconnect" class="quiet" type="button" hidden>Disconnect</button>
+  </header>
+
+  <main>
+    <section id="welcome" class="welcome" aria-labelledby="welcome-title">
+      <div class="eyebrow">Local inspection</div>
+      <h1 id="welcome-title">See what your agents remember.</h1>
+      <p>Search memories, follow their evidence, correct the record, and remove what should be forgotten. Your credential stays in this tab’s memory.</p>
+      <form id="connect-form" class="connect-card">
+        <label for="credential">Paired credential</label>
+        <div class="input-row">
+          <input id="credential" name="credential" type="password" autocomplete="off" spellcheck="false" required aria-describedby="credential-help">
+          <button type="submit">Connect</button>
+        </div>
+        <small id="credential-help">Create one locally with <code>bigfeels-mem pair</code>.</small>
+      </form>
+    </section>
+
+    <section id="workspace" class="workspace" hidden aria-label="Memory workspace">
+      <div class="workspace-heading">
+        <div>
+          <div class="eyebrow">Inspection workspace</div>
+          <h1>Memory, with receipts.</h1>
+        </div>
+        <button id="refresh" class="quiet" type="button">Refresh</button>
+      </div>
+
+      <section id="status-cards" class="status-cards" aria-label="Service status"></section>
+
+      <form id="search-form" class="search-box" role="search">
+        <label for="query">Search memory</label>
+        <div class="input-row">
+          <input id="query" type="search" placeholder="A decision, preference, task…" autocomplete="off">
+          <button type="submit">Search</button>
+        </div>
+        <p>Leave blank to browse every record available to this credential, including candidates and history.</p>
+      </form>
+
+      <div id="notice" class="notice" role="status" aria-live="polite"></div>
+
+      <section class="results-heading" aria-labelledby="results-title">
+        <div>
+          <div class="eyebrow">Results</div>
+          <h2 id="results-title">Memory records</h2>
+        </div>
+        <span id="result-count" class="count"></span>
+      </section>
+      <div id="memories" class="memories"></div>
+      <section id="trace" class="trace" hidden aria-labelledby="trace-title">
+        <h2 id="trace-title">Recall trace</h2>
+        <dl id="trace-values"></dl>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="inspect-dialog">
+    <div class="dialog-heading">
+      <div>
+        <div class="eyebrow">Provenance</div>
+        <h2>Record detail</h2>
+      </div>
+      <button class="icon-button" data-close="inspect-dialog" type="button" aria-label="Close record detail">×</button>
+    </div>
+    <pre id="inspect-content" tabindex="0"></pre>
+  </dialog>
+
+  <dialog id="correct-dialog">
+    <form id="correct-form">
+      <div class="dialog-heading">
+        <div>
+          <div class="eyebrow">New revision</div>
+          <h2>Correct this memory</h2>
+        </div>
+        <button class="icon-button" data-close="correct-dialog" type="button" aria-label="Close correction form">×</button>
+      </div>
+      <label for="correct-content">Corrected content</label>
+      <textarea id="correct-content" rows="7" required></textarea>
+      <label for="correct-time">Effective time <span>(optional)</span></label>
+      <input id="correct-time" type="datetime-local">
+      <p class="form-help">The previous revision and its evidence remain available in the record history.</p>
+      <div class="dialog-actions">
+        <button class="quiet" data-close="correct-dialog" type="button">Cancel</button>
+        <button type="submit">Save correction</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

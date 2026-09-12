@@ -85,6 +85,9 @@ identifies the upstream contracts inspected and host scenarios not yet run.
 
 ## How memory behaves
 
+See the [design rationale](docs/design.md) for the qualities, failure modes, and
+tradeoffs behind these choices.
+
 ```mermaid
 flowchart LR
   H[Hermes / OpenClaw / MCP] --> A[Authenticated local API]
@@ -143,6 +146,7 @@ PYTHONPATH=src python3 benchmarks/replay.py --output benchmarks/results.json
 ```
 
 Export uses `BIGFEELS_MEM_TOKEN` for scoped access and excludes credentials.
+To retire a credential, run `bigfeels-mem revoke --token-env BIGFEELS_MEM_TOKEN`.
 Restore requires an empty database, validates scope/provenance integrity, and
 restores unfinished processing. Embeddings are rebuilt using the configured model.
 

@@ -1,0 +1,10 @@
+name: bigfeels
+version: 0.1.0
+description: "bigfeels local evidence memory through the native Hermes MemoryProvider lifecycle."
+kind: exclusive
+requires_env:
+  - BIGFEELS_MEM_URL
+  - BIGFEELS_MEM_TOKEN
+  - BIGFEELS_MEM_OWNER_SPACE
+hooks:
+  - on_pre_compress

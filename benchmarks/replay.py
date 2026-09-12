@@ -53,6 +53,8 @@ def run():
         # Curated baseline excludes inferred proposals but retains chronological
         # notes, rather than receiving an oracle resolution of test questions.
         curated = [m for m in owner_records if m['basis'] != 'inferred']
+        baseline_vectors = dict(zip([m['id'] for m in owner_records],
+                                    embedder.embed([m['content'] for m in owner_records])))
         report = {'fixture': 'continuity-v1', 'model': 'none; deterministic retrieval only',
                   'embedding': embedder.model, 'budget': 3200,
                   'expected_total': sum(len(x['expected']) for x in cases), 'policies': {}}
@@ -70,7 +72,7 @@ def run():
                     query_terms = set(terms(case['query']))
                     qvector = embedder.embed([case['query']])[0]
                     found = [m for m in owner_records if query_terms & set(terms(m['content']))
-                             or cosine(qvector, embedder.embed([m['content']])[0]) >= .65]
+                             or cosine(qvector, baseline_vectors[m['id']]) >= .65]
                 else:
                     data = dict(query=case['query'], budget=3200)
                     if 'as_of' in case:
