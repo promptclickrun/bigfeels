@@ -1,0 +1,201 @@
+{
+  "fixture": "continuity-v1",
+  "model": "none; deterministic retrieval only",
+  "embedding": "fixture-topics-v1",
+  "budget": 3200,
+  "expected_total": 3,
+  "policies": {
+    "no_memory": {
+      "expected_covered": 0,
+      "forbidden_exposures": 0,
+      "citation_rate": null,
+      "correct_abstentions": 3,
+      "context_bytes": 0,
+      "elapsed_ms": 0.012,
+      "fixture_embedding_calls": 0,
+      "paid_provider_calls": 0,
+      "cases": [
+        {
+          "case": "current_correction",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        },
+        {
+          "case": "historical_state",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        },
+        {
+          "case": "semantic_recall",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        },
+        {
+          "case": "private_scope",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        },
+        {
+          "case": "unsupported_completion",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        },
+        {
+          "case": "unrelated_abstention",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        }
+      ]
+    },
+    "curated_markdown": {
+      "expected_covered": 3,
+      "forbidden_exposures": 2,
+      "citation_rate": 1.0,
+      "correct_abstentions": 0,
+      "context_bytes": 7074,
+      "elapsed_ms": 0.095,
+      "fixture_embedding_calls": 0,
+      "paid_provider_calls": 0,
+      "cases": [
+        {
+          "case": "current_correction",
+          "expected_covered": 1,
+          "forbidden_exposures": 1,
+          "returned": 3
+        },
+        {
+          "case": "historical_state",
+          "expected_covered": 1,
+          "forbidden_exposures": 1,
+          "returned": 3
+        },
+        {
+          "case": "semantic_recall",
+          "expected_covered": 1,
+          "forbidden_exposures": 0,
+          "returned": 3
+        },
+        {
+          "case": "private_scope",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 3
+        },
+        {
+          "case": "unsupported_completion",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 3
+        },
+        {
+          "case": "unrelated_abstention",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 3
+        }
+      ]
+    },
+    "simple_hybrid": {
+      "expected_covered": 3,
+      "forbidden_exposures": 3,
+      "citation_rate": 1.0,
+      "correct_abstentions": 2,
+      "context_bytes": 2363,
+      "elapsed_ms": 0.216,
+      "fixture_embedding_calls": 25,
+      "paid_provider_calls": 0,
+      "cases": [
+        {
+          "case": "current_correction",
+          "expected_covered": 1,
+          "forbidden_exposures": 1,
+          "returned": 2
+        },
+        {
+          "case": "historical_state",
+          "expected_covered": 1,
+          "forbidden_exposures": 1,
+          "returned": 2
+        },
+        {
+          "case": "semantic_recall",
+          "expected_covered": 1,
+          "forbidden_exposures": 0,
+          "returned": 1
+        },
+        {
+          "case": "private_scope",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        },
+        {
+          "case": "unsupported_completion",
+          "expected_covered": 0,
+          "forbidden_exposures": 1,
+          "returned": 1
+        },
+        {
+          "case": "unrelated_abstention",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        }
+      ]
+    },
+    "bigfeels": {
+      "expected_covered": 3,
+      "forbidden_exposures": 0,
+      "citation_rate": 1.0,
+      "correct_abstentions": 3,
+      "context_bytes": 1265,
+      "elapsed_ms": 5.46,
+      "fixture_embedding_calls": 6,
+      "paid_provider_calls": 0,
+      "cases": [
+        {
+          "case": "current_correction",
+          "expected_covered": 1,
+          "forbidden_exposures": 0,
+          "returned": 1
+        },
+        {
+          "case": "historical_state",
+          "expected_covered": 1,
+          "forbidden_exposures": 0,
+          "returned": 1
+        },
+        {
+          "case": "semantic_recall",
+          "expected_covered": 1,
+          "forbidden_exposures": 0,
+          "returned": 1
+        },
+        {
+          "case": "private_scope",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        },
+        {
+          "case": "unsupported_completion",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        },
+        {
+          "case": "unrelated_abstention",
+          "expected_covered": 0,
+          "forbidden_exposures": 0,
+          "returned": 0
+        }
+      ]
+    }
+  }
+}
