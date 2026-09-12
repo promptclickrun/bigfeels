@@ -35,6 +35,31 @@ console.log(JSON.stringify({text:recalled?.prependContext??''}));
 
 @unittest.skipUnless(shutil.which('node'), 'Node 22+ is required for cross-agent conformance')
 class CrossAgentTests(unittest.TestCase):
+    def test_native_hosts_share_local_memory_without_http_or_credentials(self):
+        with tempfile.TemporaryDirectory() as temp:
+            provider = BigfeelsMemoryProvider({'data_dir':temp, 'auto_extract':False})
+            provider.initialize('native-hermes', hermes_home=temp, platform='cli', agent_context='primary')
+            self.addCleanup(provider.shutdown)
+            saved = json.loads(provider.handle_tool_call('bigfeels_remember', {'content':'Native shared orchid decision.'}))
+            self.assertIn('id', saved)
+            script = '''
+import {pathToFileURL} from 'node:url';
+const {createOpenClawAdapter}=await import(pathToFileURL(process.env.BIGFEELS_ADAPTER));
+const a=createOpenClawAdapter({config:{dataDir:process.env.BIGFEELS_DATA},logger:{warn(){}}});
+const memories=await a.post('context',{query:'orchid'});
+if(memories.memories.length!==1)throw new Error('Hermes memory missing');
+await a.post('remember',{space:'owner',content:'OpenClaw native jasmine decision.'});
+console.log(JSON.stringify({id:memories.memories[0].id,mode:a.mode}));
+'''
+            env = dict(os.environ, BIGFEELS_DATA=temp, BIGFEELS_ADAPTER=str(ROOT/'adapters/openclaw/adapter.js'))
+            env.pop('BIGFEELS_MEM_TOKEN', None)
+            result = subprocess.run(['node','--input-type=module','-e',script],env=env,capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(json.loads(result.stdout),{'id':saved['id'],'mode':'native'})
+            self.assertIn('jasmine',provider.prefetch('jasmine'))
+            with provider._local.store.connection() as connection:
+                self.assertEqual(connection.execute('SELECT COUNT(*) FROM credentials').fetchone()[0],0)
+
     def test_hermes_and_openclaw_share_corrections_and_preserve_project_boundaries(self):
         with tempfile.TemporaryDirectory() as temp:
             store = Store(Path(temp) / 'memory.sqlite')

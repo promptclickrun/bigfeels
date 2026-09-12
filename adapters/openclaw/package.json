@@ -1,13 +1,14 @@
 {
   "name": "@bigfeels/openclaw-memory",
   "version": "0.1.0",
-  "description": "OpenClaw lifecycle adapter for the bigfeels memory service",
+  "description": "OpenClaw native lifecycle adapter for the bigfeels memory core",
   "type": "module",
   "exports": "./index.js",
   "files": [
     "adapter.js",
     "index.js",
     "tools.js",
+    "bridge.py",
     "openclaw.plugin.json",
     "README.md"
   ],

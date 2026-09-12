@@ -1,8 +1,9 @@
 # Host adapter compatibility
 
-The adapters are thin clients of the authenticated v1 HTTP contract. They do
-not read the SQLite database, grant spaces, edit host configuration, or infer
-that an assistant claim is a verified outcome.
+The native adapters use each host's lifecycle and the local bigfeels store.
+They do not grant memory access through browser pairing, copy model credentials,
+or infer that an assistant claim is a verified outcome. The authenticated v1
+HTTP contract remains available as an explicit advanced compatibility path.
 
 ## Hermes
 
@@ -10,14 +11,24 @@ Source compatibility was checked against Hermes Agent commit
 `44ddc552f5e054759a6970af8997ea588a9d81c9` in the read-only
 `upstream/hermes-agent-official` checkout.
 
-The plugin implements `agent.memory_provider.MemoryProvider` and registers it
-with `register_memory_provider`. Hermes discovers user memory providers under
-`$HERMES_HOME/plugins/<name>`, selects one with `memory.provider`, initializes
-it with `agent_context` and `platform`, calls `on_turn_start` before `prefetch`,
+The repository root contains the installable `plugin.yaml` and `__init__.py`,
+so `hermes plugins install OWNER/REPOSITORY --enable` can load it through
+Hermes's real directory loader without a pip install. The plugin implements
+`agent.memory_provider.MemoryProvider` and registers it with
+`register_memory_provider`. Hermes discovers it under
+`$HERMES_HOME/plugins/<name>`, selects it with `memory.provider`, initializes it
+with `agent_context` and `platform`, calls `on_turn_start` before `prefetch`,
 passes full messages to background `sync_turn`, and reports session changes
-through `on_session_switch`. The adapter exposes no generic Hermes hook or core
-patch. `get_tool_schemas` and `handle_tool_call` expose the six scoped v1 memory
-operations through the native provider tool path.
+through `on_session_switch`. The provider lazily resolves the bundled
+`src/bigfeels_mem` package, opens `LocalClient` only for the primary context,
+and uses `agent.auxiliary_client.call_llm(task="bigfeels_memory", ...)` for
+host-owned extraction. `get_config_schema` has no required fields, so
+`hermes memory setup bigfeels` only activates the provider.
+
+The adapter still accepts an explicit `AdapterConfig` and complete
+`BIGFEELS_MEM_*` environment configuration for existing authenticated HTTP
+deployments. That path uses the same six scoped memory operations through the
+native provider tool path.
 
 Hermes does not give `sync_turn` its separate observer `turn_id`. The provider
 captures bounded, locked per-session snapshots of Hermes's restored
@@ -53,8 +64,10 @@ tool in `contracts.tools`, as required by the inspected plugin loader.
 
 Both adapters send the configured owner space plus only explicitly listed
 project spaces on recall. Capture is forced to one configured space that must
-belong to that list. The service still enforces the bearer credential's scopes.
-User, tool, and assistant events retain their roles and stable host identities.
+belong to that list. Native local access enforces the same scope through the
+`LocalClient` principal; explicit HTTP access additionally enforces bearer
+credential scopes. User, tool, and assistant events retain their roles and
+stable host identities.
 Results from the adapters' own `bigfeels_*` tools are excluded from automatic
 tool capture so recalled or inspected content cannot return as fresh evidence.
 Exact recalled-content echoes carry their source evidence IDs, allowing the
@@ -79,6 +92,6 @@ pure-echo provenance, primary identity filtering, space allowlists, timeouts,
 and secret-free error paths.
 
 No adapter was installed into a live Hermes profile or OpenClaw Gateway. No
-private conversation was captured. The results establish source-contract and
-local HTTP behavior, not live host discovery, process lifecycle, delivery, or
-upgrade compatibility beyond the two commits above.
+private conversation was captured and no live model call was made. The results
+establish source-contract and local behavior, not live host discovery, process
+lifecycle, delivery, or upgrade compatibility beyond the two commits above.

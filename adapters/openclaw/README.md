@@ -1,26 +1,20 @@
-# OpenClaw adapter
+# bigfeels OpenClaw adapter
 
-This package is a native OpenClaw memory plugin. It registers the documented
-`before_prompt_build`, `agent_end`, and `session_end` hooks and explicit memory
-tools through the Plugin SDK. It uses Node's built-in `fetch`; there are no
-runtime dependencies besides OpenClaw.
-
-Install this local package with OpenClaw's plugin installer:
+Clone this repository from the URL supplied by the project owner, then install
+the repository root so the Python core is included:
 
 ```sh
-bigfeels-mem init
-bigfeels-mem space project:app
-bigfeels-mem pair openclaw --space owner --space project:app
-bigfeels-mem serve
-
-openclaw plugins install /absolute/path/to/bigfeels-mem/adapters/openclaw
+openclaw plugins install /absolute/path/to/bigfeels-mem
 ```
 
-Add a normal plugin entry using a bearer token created by `bigfeels-mem pair`:
+Select the memory slot and grant the two host hook capabilities in the normal
+OpenClaw configuration. Merge these fields into the existing configuration;
+keep unrelated plugin entries and slots:
 
 ```json
 {
   "plugins": {
+    "slots": { "memory": "bigfeels-mem" },
     "entries": {
       "bigfeels-mem": {
         "enabled": true,
@@ -28,36 +22,47 @@ Add a normal plugin entry using a bearer token created by `bigfeels-mem pair`:
           "allowConversationAccess": true,
           "allowPromptInjection": true
         },
-        "config": {
-          "url": "http://127.0.0.1:8765",
-          "token": "${BIGFEELS_MEM_TOKEN}",
-          "ownerSpace": "owner",
-          "projectSpaces": ["project:app"],
-          "writeSpace": "project:app",
-          "primaryAgentId": "main",
-          "budget": 800,
-          "timeoutMs": 750,
-          "autoCapture": true,
-          "autoRecall": true
-        }
+        "config": {}
       }
     }
   }
 }
 ```
 
-OpenClaw requires the explicit `allowConversationAccess` gate for installed
-plugins that observe `agent_end`. The server-side token scopes must cover the
-owner space, each listed project space, and the write space. The write space
-defaults to the owner space. Plain HTTP endpoints must be loopback.
+An empty plugin config uses native local storage in the normal data directory,
+the `owner` space, and the `main` agent. Set `dataDir` only when the host needs
+a specific local directory. Set `projectSpaces` and `writeSpace` to link extra
+spaces. Python 3.11+ must be available as `python3`; set the optional
+`pythonPath` setting when it is elsewhere.
 
-The adapter accepts only the configured primary agent, requires OpenClaw's
-stable run and session identities, rejects subagent session keys through the
-official routing helper, and rejects scheduled/background jobs. Hook and HTTP
-timeouts are bounded and fail open so memory outages do not block a turn. It
-registers `bigfeels_search`, `bigfeels_inspect`, `bigfeels_remember`,
-`bigfeels_correct`, `bigfeels_forget`, and `bigfeels_status` as native tools;
-the same configured space allowlist is enforced before each tool request.
+The default `main` primary agent needs no LLM policy. If `primaryAgentId` is
+set to another agent, add OpenClaw's explicit policy under that plugin entry:
+`"llm": { "allowAgentIdOverride": true }`. Without that host capability the
+adapter leaves extraction queued instead of silently using another agent's
+credentials.
+
+Native operations launch one short-lived Python child with bounded stdio.
+Queued extraction sends only redacted evidence to OpenClaw's official
+`api.runtime.llm.complete` callback. The callback leaves `model` and
+credentials to the active host agent, so its configured subscription and
+credential ownership are used. It supplies the bounded primary agent context
+to injected runtimes; a non-default `primaryAgentId` requires the host's
+explicit agent binding capability. If that capability is unavailable,
+extraction stays queued and the conversation still completes.
+
+The adapter registers `bigfeels_search`, `bigfeels_inspect`,
+`bigfeels_remember`, `bigfeels_correct`, `bigfeels_forget`, and
+`bigfeels_status`. Recalled content is marked as historical evidence and is
+never treated as instructions. Automatic capture is limited to the configured
+primary agent's foreground runs; scheduled jobs, subagents, and other agents
+are ignored. Tool output from bigfeels itself is suppressed, while source IDs
+remain replay-stable and echoed memories retain their lineage.
+
+The previous authenticated HTTP service remains available as an explicit
+compatibility mode. Supply `mode: "http"`, `url`, and `token` (plus the same
+scope fields) when using a separately managed local service. Native mode
+rejects URL and token settings so credentials cannot accidentally cross the
+stdio boundary. No browser pairing or second model provider is required.
 
 Run the adapter tests directly with:
 

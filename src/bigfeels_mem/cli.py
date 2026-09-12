@@ -10,6 +10,8 @@ import urllib.parse
 
 from .client import ClientError, MemoryClient
 from .mcp import serve_stdio
+from .local import LocalClient
+from .paths import default_data_dir
 from .providers import OpenAIProvider, ProviderError
 from .server import serve
 from .store import MemoryError, Store
@@ -20,15 +22,6 @@ DATABASE_NAME = 'memory.sqlite'
 CONFIG_NAME = 'config.json'
 MAX_CONFIG_BYTES = 100_000
 MAX_EXPORT_BYTES = 64_000_000
-
-
-def default_data_dir():
-    if sys.platform == 'darwin':
-        return Path.home() / 'Library' / 'Application Support' / 'bigfeels-mem'
-    if os.name == 'nt' and os.environ.get('APPDATA'):
-        return Path(os.environ['APPDATA']) / 'bigfeels-mem'
-    base = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local' / 'share'))
-    return base / 'bigfeels-mem'
 
 
 def _paths(value):
@@ -149,9 +142,13 @@ def build_parser():
 
     commands.add_parser('doctor', help='Check local storage and provider configuration')
 
-    export = commands.add_parser('export', help='Export credential-scoped memory')
+    status = commands.add_parser('status', help='Inspect local memory counts and pending work')
+    status.add_argument('--space', action='append', dest='spaces', help='Memory scope (default: owner)')
+
+    export = commands.add_parser('export', help='Export local memory or explicitly use a credential')
     export.add_argument('--output', required=True)
-    export.add_argument('--token-env', default='BIGFEELS_MEM_TOKEN')
+    export.add_argument('--token-env', help='Use a credential instead of local filesystem authority')
+    export.add_argument('--space', action='append', dest='spaces', help='Local export scopes when --token-env is omitted')
 
     restore = commands.add_parser('restore', help='Restore an export into an empty store')
     restore.add_argument('input')
@@ -159,8 +156,9 @@ def build_parser():
     commands.add_parser('maintenance', help='Run retention and database maintenance')
 
     mcp = commands.add_parser('mcp', help='Run the MCP adapter over stdio')
-    mcp.add_argument('--url', default='http://127.0.0.1:8765')
+    mcp.add_argument('--url', help='Optional HTTP service URL; otherwise use local storage directly')
     mcp.add_argument('--token-env', default='BIGFEELS_MEM_TOKEN')
+    mcp.add_argument('--space', action='append', dest='spaces', help='Local memory scope (default: owner)')
     return parser
 
 
@@ -196,7 +194,9 @@ def _doctor(database_path, config_path):
                 'embeddings': ('available' if available else 'credential_missing') if provider.can_embed else 'not_configured',
             }
             result['api_key_environment'] = {'name': provider.key_env, 'present': key_present}
-    if result['database'] != 'ok' or result['config'] != 'ok':
+    if result['config'] == 'missing':
+        result['config'] = 'optional_for_native_hosts'
+    if result['database'] != 'ok':
         result['status'] = 'needs_attention'
     return result
 
@@ -254,10 +254,23 @@ def main(argv=None, stdout=None, stderr=None):
             )
         elif args.command == 'doctor':
             _write(stdout, _doctor(database_path, config_path))
+        elif args.command == 'status':
+            client = LocalClient(data_dir, spaces=args.spaces or ['owner'])
+            try:
+                _write(stdout, client.call('status', {}))
+            finally:
+                client.close()
         elif args.command == 'export':
-            store = Store(database_path)
-            principal = store.authenticate(_token(args.token_env))
-            bundle = store.dispatch(principal, 'export', {})
+            if args.token_env is not None:
+                store = Store(database_path)
+                principal = store.authenticate(_token(args.token_env))
+                bundle = store.dispatch(principal, 'export', {})
+            else:
+                client = LocalClient(data_dir, spaces=args.spaces or ['owner'])
+                try:
+                    bundle = client.call('export', {})
+                finally:
+                    client.close()
             _private_json(args.output, bundle, replace=False)
             _write(stdout, {'status': 'exported', 'output': str(Path(args.output))})
         elif args.command == 'restore':
@@ -271,8 +284,13 @@ def main(argv=None, stdout=None, stderr=None):
         elif args.command == 'maintenance':
             _write(stdout, {'status': 'ok', **Store(database_path).maintenance()})
         elif args.command == 'mcp':
-            client = MemoryClient(args.url, _token(args.token_env))
-            serve_stdio(client, sys.stdin, stdout)
+            client = (MemoryClient(args.url, _token(args.token_env)) if args.url else
+                      LocalClient(data_dir, spaces=args.spaces or ['owner'], name='mcp'))
+            try:
+                serve_stdio(client, sys.stdin, stdout)
+            finally:
+                if isinstance(client, LocalClient):
+                    client.close()
         return 0
     except (MemoryError, ClientError, ProviderError, OSError, ValueError, json.JSONDecodeError) as exc:
         status = getattr(exc, 'status', 1)

@@ -16,7 +16,7 @@ this is not a claim that every existing product has each defect.
 | Similarity retrieves an obsolete fact | Validity intervals, revisions, explicit correction lineage | Unstructured contradictions need a shared subject key |
 | Repeated recall becomes independent corroboration | Source identity, deduplication, memory-tool echo exclusion | Adapters cannot recognize arbitrary human paraphrases of recalled facts |
 | An agent reports success without observing it | Source basis and outcome are separate; extraction cannot assert verification | Explicit verification still depends on trustworthy evidence |
-| One project's secrets appear in another | Credential scopes are checked before ranking | Local credentials authorize all operations in their spaces |
+| One project's secrets appear in another | Integration scopes are checked before ranking and extraction | Local access trusts the OS user; HTTP credentials authorize their assigned spaces |
 | Deletion leaves a source that can recreate the fact | Delete dependency closure and retain content-free replay tombstones | External transcripts, exports, and provider copies remain external |
 | A write blocks the conversation or disappears during failure | Durable leased processing with bounded provider calls and retries | Host capture must reach the local service before it is durable |
 | A memory becomes a hidden instruction or permission | Retrieved context is labeled evidence, not authority | The consuming agent must maintain its own instruction boundaries |
@@ -41,16 +41,33 @@ Abstaining is preferable to inserting an unrelated or unsupported memory.
 
 ## Integration and trust
 
+The revised setup follows Hermes's existing local-memory pattern. Its
+[memory-provider guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers/)
+shows native activation through `hermes memory setup`; the Holographic provider
+uses local SQLite without external service credentials. Cloud providers such as
+Honcho and Mem0 have service credentials because they use a separate backend.
+bigfeels's on-device default has no reason to impose that backend login flow.
+
+For extraction, the inspected Hermes `agent.auxiliary_client.call_llm` routes
+text tasks through the configured main provider/model and supported authentication.
+OpenClaw exposes `api.runtime.llm.complete` for the same host-owned boundary.
+Calling those APIs avoids building a second subscription login, credential store,
+token-refresh path, or hardcoded provider endpoint inside bigfeels.
+
 Hermes and OpenClaw use their native lifecycle contracts for capture and recall.
 MCP exposes explicit tools to other hosts; it cannot promise automatic capture
 without access to that host's lifecycle. Shared owner memory and explicitly named
 project spaces give participating agents continuity without inferring links from
 folders or names.
 
-The local service owns credentials, persistence, and mutation rules. Adapters are
-thin clients. Hosted extraction and embedding models are optional, separately
-configured consumers of redacted data. Provider output is untrusted structured
-input and cannot grant permissions, verify its own success, or execute procedures.
+The shared local core owns persistence and mutation rules. Native adapters use
+direct local access (Python) or a private child pipe (Node), requiring no network
+credentials or manual service setup. Host completion APIs own model selection,
+subscription support, authentication, and refresh. bigfeels does not copy host
+credentials. Optional standalone HTTP access retains scoped bearer authentication.
+Provider output is untrusted structured input and cannot grant permissions,
+verify its own success, or execute procedures. Embeddings and independent model
+configuration are advanced options, not prerequisites for useful memory.
 
 The preview favors auditability and conservative promotion over autonomous
 consolidation. Future improvements should be justified by realistic continuity

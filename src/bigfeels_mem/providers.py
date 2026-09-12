@@ -34,6 +34,30 @@ Use an empty memories list when nothing durable is supported.
 The service independently checks quotes and speaker compatibility.'''
 
 
+def extraction_messages(evidence):
+    body = {'speaker': evidence.get('speaker'), 'content': redact(evidence['content']),
+            'occurred_at': evidence.get('occurred_at')}
+    return [{'role': 'system', 'content': EXTRACTION_PROMPT},
+            {'role': 'user', 'content': json.dumps(body)}]
+
+
+def parse_extraction(text):
+    try:
+        if not isinstance(text, str) or len(text) > 1_000_000:
+            raise ValueError()
+        text = text.strip()
+        # Native chat providers do not all support JSON response_format.
+        # Accept a single fenced JSON object, never surrounding prose/code.
+        if text.startswith('```json\n') and text.endswith('\n```'):
+            text = text[8:-4]
+        candidates = json.loads(text)['memories']
+        if not isinstance(candidates, list) or len(candidates) > 32 or any(not isinstance(c, dict) for c in candidates):
+            raise ValueError()
+        return candidates
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise ProviderError('Extraction response does not match the memory schema') from None
+
+
 class OpenAIProvider:
     def __init__(self, config):
         self.base_url = config.get('base_url', 'https://api.openai.com/v1').rstrip('/')
@@ -88,18 +112,11 @@ class OpenAIProvider:
     def extract(self, evidence):
         if not self.can_extract:
             raise ProviderError('Extraction model is not configured')
-        body = {'speaker': evidence.get('speaker'), 'content': redact(evidence['content']),
-                'occurred_at': evidence.get('occurred_at')}
         response = self._post('/chat/completions', {'model': self.extraction_model,
-            'messages': [{'role': 'system', 'content': EXTRACTION_PROMPT},
-                         {'role': 'user', 'content': json.dumps(body)}],
+            'messages': extraction_messages(evidence),
             'response_format': {'type': 'json_object'}})
         try:
-            parsed = json.loads(response['choices'][0]['message']['content'])
-            candidates = parsed['memories']
-            if not isinstance(candidates, list) or len(candidates) > 32 or any(not isinstance(c, dict) for c in candidates):
-                raise ValueError()
-            return candidates
+            return parse_extraction(response['choices'][0]['message']['content'])
         except (KeyError, IndexError, TypeError, ValueError):
             raise ProviderError('Extraction response does not match the memory schema') from None
 

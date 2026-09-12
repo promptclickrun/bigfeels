@@ -1,16 +1,28 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import fs from "node:fs";
 import { createServer } from "node:http";
 import { afterEach, test } from "node:test";
+import os from "node:os";
+import { spawn } from "node:child_process";
 
 import { createOpenClawAdapter, registerOpenClawSurface } from "./adapter.js";
 import { toolDefinitions } from "./tools.js";
 
 
 const servers = [];
+const dataDirectories = [];
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((resolve) => server.close(resolve))));
+  for (const directory of dataDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
 });
+
+function nativeDataDirectory() {
+  const directory = fs.mkdtempSync(`${os.tmpdir()}/bigfeels-openclaw-`);
+  dataDirectories.push(directory);
+  return directory;
+}
 
 async function startMemoryService({ contextForQuery = () => ({ memories: [], tokens: 0, status: "ok", trace: {} }), delayMs = 0 } = {}) {
   const requests = [];
@@ -55,6 +67,34 @@ function config(url, overrides = {}) {
 
 function isSubagentSessionKey(value) {
   return typeof value === "string" && value.includes(":subagent:");
+}
+
+function fakeChild(onRequest) {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killSignals = [];
+  child.stdin = {
+    writes: [],
+    endCalls: 0,
+    destroyCalls: 0,
+    write(value) {
+      this.writes.push(value);
+      onRequest(value, child);
+      return true;
+    },
+    end() {
+      this.endCalls += 1;
+    },
+    destroy() {
+      this.destroyCalls += 1;
+    },
+  };
+  child.kill = (signal) => {
+    child.killSignals.push(signal);
+    return true;
+  };
+  return child;
 }
 
 test("native registration exposes lifecycle hooks and all declared tools", () => {
@@ -293,4 +333,194 @@ test("plain HTTP service must be loopback", () => {
     }),
     /loopback/,
   );
+});
+
+test("empty config defaults to native Python child storage without network auth", async () => {
+  const environments = [];
+  const adapter = createOpenClawAdapter({
+    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000 },
+    fetchImpl: async () => {
+      throw new Error("native mode must not call fetch");
+    },
+    spawnImpl: (command, args, options) => {
+      environments.push({ command, args, env: options.env });
+      return spawn(command, args, options);
+    },
+  });
+
+  assert.equal(adapter.mode, "native");
+  assert.deepEqual(adapter.spaces, ["owner"]);
+  assert.equal(adapter.writeSpace, "owner");
+  const saved = await adapter.post("remember", {
+    space: "owner",
+    content: "Native child storage works",
+    kind: "fact",
+  });
+  const recalled = await adapter.post("context", {
+    query: "Native child storage",
+    spaces: ["owner"],
+    budget: 800,
+  });
+
+  assert.equal(saved.content, "Native child storage works");
+  assert.equal(recalled.memories[0].content, "Native child storage works");
+  assert.ok(environments.length >= 2);
+  assert.ok(environments.every(({ command }) => command === "python3"));
+  assert.ok(environments.every(({ env }) => env.PYTHONUTF8 === "1"));
+  assert.ok(environments.every(({ env }) => !Object.keys(env).some((key) => /API|TOKEN|SECRET|KEY/i.test(key))));
+});
+
+test("native extraction uses the host model callback and inherits its model boundary", async () => {
+  const completions = [];
+  const adapter = createOpenClawAdapter({
+    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000 },
+    complete: async (request) => {
+      completions.push(request);
+      return {
+        text: JSON.stringify({
+          memories: [{
+            content: "I prefer native memory",
+            quote: "I prefer native memory",
+            basis: "direct",
+            kind: "preference",
+          }],
+        }),
+      };
+    },
+  });
+  const ctx = { runId: "native-run", agentId: "main", sessionKey: "agent:main:main" };
+
+  await adapter.agentEnd({
+    runId: ctx.runId,
+    success: true,
+    messages: [
+      { role: "user", content: "I prefer native memory" },
+      { role: "assistant", content: "I will remember that." },
+    ],
+  }, ctx);
+  await adapter.processPending(ctx);
+
+  assert.ok(completions.length >= 1);
+  assert.ok(completions.every((request) => request.maxTokens === 1200));
+  assert.ok(completions.every((request) => request.signal instanceof AbortSignal));
+  assert.ok(completions.every((request) => request.agentId === "main"));
+  assert.ok(completions.every((request) => !Object.hasOwn(request, "model")));
+  assert.ok(completions.every((request) => request.messages.some((message) => message.role === "system")));
+  assert.doesNotMatch(JSON.stringify(completions), /OPENAI_API_KEY|Bearer\s+private|private-token/i);
+});
+
+test("native extraction does not call the model for background or nonprimary runs", async () => {
+  let completions = 0;
+  const adapter = createOpenClawAdapter({
+    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000 },
+    complete: async () => {
+      completions += 1;
+      return { text: '{"memories":[]}' };
+    },
+  });
+  const cases = [
+    { runId: "system", agentId: "main", sessionKey: "agent:main:main", trigger: "system" },
+    { runId: "secondary", agentId: "secondary", sessionKey: "agent:secondary:main" },
+  ];
+  for (const ctx of cases) {
+    await adapter.agentEnd({
+      runId: ctx.runId,
+      success: true,
+      messages: [{ role: "user", content: "background evidence" }, { role: "assistant", content: "ignored" }],
+    }, ctx);
+  }
+  assert.equal(completions, 0);
+});
+
+test("native model timeout aborts completion, closes stdin, and terminates child", async () => {
+  let child;
+  let completionSignal;
+  const adapter = createOpenClawAdapter({
+    config: { processTimeoutMs: 25 },
+    spawnImpl: (_command, _args, _options) => {
+      child = fakeChild((value, currentChild) => {
+        const request = JSON.parse(value);
+        if (request.operation === "process") {
+          setImmediate(() => currentChild.stdout.emit("data", `${JSON.stringify({
+            id: "extract-timeout",
+            method: "extract",
+            messages: [{ role: "user", content: "slow" }],
+          })}\n`));
+        }
+      });
+      return child;
+    },
+    complete: ({ signal }) => {
+      completionSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("completion aborted")), { once: true });
+      });
+    },
+  });
+
+  await assert.rejects(
+    adapter.post("process", { limit: 1 }, { runId: "timeout", agentId: "main", sessionKey: "agent:main:main" }),
+    /timed out/,
+  );
+  assert.ok(completionSignal?.aborted);
+  assert.deepEqual(child.killSignals, ["SIGKILL"]);
+  assert.equal(child.stdin.endCalls, 1);
+  assert.equal(child.stdin.destroyCalls, 1);
+});
+
+test("native child protocol preserves UTF-8 across fragmented stdout chunks", async () => {
+  let child;
+  const adapter = createOpenClawAdapter({
+    config: { processTimeoutMs: 500 },
+    spawnImpl: (_command, _args, _options) => {
+      child = fakeChild((value, currentChild) => {
+        const request = JSON.parse(value);
+        if (request.operation !== "context") return;
+        const response = Buffer.from(JSON.stringify({
+          id: request.id,
+          result: { status: "ok", memories: [{ content: "café" }] },
+        }) + "\n", "utf8");
+        const split = response.indexOf(Buffer.from("é", "utf8")) + 1;
+        setImmediate(() => {
+          currentChild.stdout.emit("data", response.subarray(0, split));
+          currentChild.stdout.emit("data", response.subarray(split));
+          currentChild.emit("close", 0);
+        });
+      });
+      return child;
+    },
+  });
+
+  const response = await adapter.post("context", { query: "cafe", spaces: ["owner"], budget: 800 }, {
+    runId: "fragmented",
+    agentId: "main",
+    sessionKey: "agent:main:main",
+  });
+  assert.equal(response.memories[0].content, "café");
+});
+
+test("native malformed protocol rejects and closes the child input", async () => {
+  let child;
+  const adapter = createOpenClawAdapter({
+    config: { processTimeoutMs: 500 },
+    spawnImpl: (_command, _args, _options) => {
+      child = fakeChild((value, currentChild) => {
+        const request = JSON.parse(value);
+        if (request.operation === "context") setImmediate(() => currentChild.stdout.emit("data", "{malformed\n"));
+      });
+      return child;
+    },
+  });
+
+  await assert.rejects(
+    adapter.post("context", { query: "malformed", spaces: ["owner"], budget: 800 }, {
+      runId: "malformed",
+      agentId: "main",
+      sessionKey: "agent:main:main",
+    }),
+    /invalid JSON/,
+  );
+  assert.deepEqual(child.killSignals, ["SIGKILL"]);
+  assert.equal(child.stdin.endCalls, 1);
+  assert.equal(child.stdin.destroyCalls, 1);
 });

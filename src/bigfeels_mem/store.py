@@ -495,10 +495,17 @@ class Store:
                 c.execute('PRAGMA wal_checkpoint(TRUNCATE)')
         return {'expired_evidence': len(ids)}
 
-    def process_one(self, extractor, embedder=None):
+    def process_one(self, extractor, embedder=None, *, spaces=None):
         lease = uid('lease')
+        scope_sql = ''
+        scope_args = ()
+        if spaces is not None:
+            scope_args = tuple(string_list(list(spaces), 'spaces'))
+            if not scope_args:
+                return False
+            scope_sql = ' AND e.space IN (' + ','.join('?' for _ in scope_args) + ')'
         with self.connection(True) as c:
-            row = c.execute("SELECT e.* FROM jobs j JOIN evidence e ON e.id=j.evidence_id WHERE e.content IS NOT NULL AND (e.expires_at IS NULL OR e.expires_at>?) AND ((j.state='pending' AND j.retry_at<=?) OR (j.state='processing' AND j.lease_until<?)) ORDER BY e.recorded_at LIMIT 1", (now(), time.time(), time.time())).fetchone()
+            row = c.execute("SELECT e.* FROM jobs j JOIN evidence e ON e.id=j.evidence_id WHERE e.content IS NOT NULL AND (e.expires_at IS NULL OR e.expires_at>?) AND ((j.state='pending' AND j.retry_at<=?) OR (j.state='processing' AND j.lease_until<?))" + scope_sql + " ORDER BY e.recorded_at LIMIT 1", (now(), time.time(), time.time(), *scope_args)).fetchone()
             if not row:
                 return False
             e = dict(row)

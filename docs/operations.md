@@ -2,18 +2,29 @@
 
 ## Storage and trust boundary
 
-One service owns one SQLite database for an OS user. SQLite WAL and per-operation
+Native hosts open one shared SQLite database for an OS user. SQLite WAL and per-operation
 transactions coordinate concurrent requests; ingestion is acknowledged only after
 commit. The database is created with mode 0600. Use a private data directory and
 OS disk encryption for at-rest protection; the database is not application-encrypted.
 
-The service binds to loopback and validates browser origins and Host headers.
+The OS user owns local storage. Native adapters and local MCP require no tokens.
+Configured spaces constrain their reads, writes, and model submissions; they
+cannot sandbox a process that already has access to the database file. Separate
+people should use separate OS accounts or private data directories.
+
+The optional HTTP service binds to loopback and validates browser origins and Host headers.
 Bearer tokens are high-entropy and only SHA-256 digests persist. Every token has
 explicit space grants. A paired agent is trusted to write in those spaces;
 provenance is audit evidence, not cryptographic proof of a host's honesty.
-Run untrusted agents with separate spaces and credentials.
+Use separate OS/process boundaries for untrusted agents.
 
-`config.json` stores model identifiers, endpoint, timeout, key environment-variable
+Native integrations call their host's official completion API. Model selection,
+subscription support, authentication, refresh, and fallback policy stay with the
+host. bigfeels neither imports its raw credentials nor stores new model secrets.
+Background extraction consumes the host model's allowance. Native defaults use
+keyword retrieval and do not require an embedding provider.
+
+In optional independent HTTP mode, `config.json` stores model identifiers, endpoint, timeout, key environment-variable
 name, and the remote-transfer choice. Never put key values in config. HTTP proxies
 and provider redirects are disabled to keep credentials on the configured endpoint.
 Model requests have bounded timeouts and response sizes. Model errors are generic;
@@ -52,7 +63,8 @@ extraction for those sources. It does not silently erase independent derived kno
 
 Forget closes over supporting evidence, dependent memories, and correction lineage.
 All affected records are immediately excluded within the transaction. Tombstones
-retain IDs, source identity digests, and space names, never deleted text. Periodic
+retain IDs, source identity digests, and space names, never deleted text. Local
+forget calls request a purge immediately; native extraction workers and service periodic
 maintenance rebuilds the text index and VACUUMs/checkpoints the database after a
 deletion or expiry. `bigfeels-mem maintenance` forces that local maintenance pass.
 
@@ -63,8 +75,8 @@ source manually reintroducing the same fact is not content-censored.
 
 Exports are plaintext and should be stored privately. They preserve evidence,
 knowledge, relationships, tombstones, and processing state, but no credentials or
-derived vector indexes. Restore into a fresh data directory; grants must be paired
-again. Restore validates relational scope boundaries and rejects a snapshot containing
+derived vector indexes. Restore into a fresh data directory; HTTP credentials must be paired
+again if that optional transport is used. Restore validates relational scope boundaries and rejects a snapshot containing
 both deleted records and their tombstones. Concurrent snapshots are transactionally
 consistent; restored processing leases restart as pending work.
 
@@ -83,11 +95,12 @@ as untrusted contextual evidence. Host approval/sandbox policies still govern ac
 
 ## Diagnostics
 
-Use `doctor` for database/configuration status and the UI for queue counts and
-provider availability. Pending work with no extraction model is expected. Check the
-service environment for the named key variable if requests fail. Use a compatible
-chat model with JSON-object output and a distinct embedding model. Do not paste
-credentials or real memory exports into bug reports.
+Use the native `bigfeels_status` tool for counts and pending work, or
+`bigfeels-mem status` and `bigfeels-mem doctor` locally. A missing service
+`config.json` is normal for native hosts. If extraction fails, check the host's
+normal model/login diagnostics; evidence stays queued. The browser is optional.
+For explicitly configured independent HTTP models, check the named key variable
+in the service environment. Do not paste credentials or private exports into reports.
 
 Check [verification](verification.md) before relying on a host integration. Installation
 and model selection are explicit operator actions; this implementation does not alter

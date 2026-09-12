@@ -1,0 +1,47 @@
+{
+  "name": "bigfeels-mem",
+  "version": "0.1.0",
+  "description": "Portable evidence-based memory with a native OpenClaw adapter",
+  "type": "module",
+  "files": [
+    "src/bigfeels_mem/*.py",
+    "src/bigfeels_mem/static",
+    "adapters/openclaw/adapter.js",
+    "adapters/openclaw/index.js",
+    "adapters/openclaw/tools.js",
+    "adapters/openclaw/bridge.py",
+    "adapters/openclaw/openclaw.plugin.json",
+    "adapters/openclaw/package.json",
+    "adapters/openclaw/README.md",
+    "openclaw.plugin.json",
+    "INSTALL.md",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "npm test --prefix adapters/openclaw"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.6.11"
+  },
+  "openclaw": {
+    "extensions": [
+      "./adapters/openclaw/index.js"
+    ],
+    "install": {
+      "localPath": ".",
+      "defaultChoice": "local",
+      "minHostVersion": ">=2026.6.11"
+    },
+    "compat": {
+      "pluginApi": ">=2026.6.11"
+    },
+    "build": {
+      "openclawVersion": "2026.6.11"
+    }
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}
