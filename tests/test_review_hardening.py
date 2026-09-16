@@ -65,13 +65,16 @@ class ReviewHardeningTests(unittest.TestCase):
         self.assertEqual(detail['status'], 'active')
         self.assertLessEqual(result['tokens'], result['trace']['budget'])
 
-    def test_same_extracted_claim_does_not_conflict_with_its_added_context(self):
+    def test_changed_claim_qualifier_preserves_context_and_requires_review(self):
         for index, content in enumerate(['I prefer Python.', 'For backend scripts, I prefer Python.']):
             self.observe(content, str(index))
             self.assertTrue(self.store.process_one(Extractor()))
         result = self.call('context', query='Python', budget=3200)
         self.assertTrue(result['memories'])
-        self.assertNotIn('disputed', {m['status'] for m in result['memories']})
+        # Grounding preserves the backend-only qualifier. A key shared with an
+        # unqualified preference is no longer proof of equivalent scope.
+        self.assertEqual({'disputed'}, {m['status'] for m in result['memories']})
+        self.assertTrue(result['warnings'])
         source_ids = {eid for m in result['memories']
                       for eid in self.call('inspect', id=m['id'])['evidence_ids']}
         self.assertEqual(len(source_ids), 2)
