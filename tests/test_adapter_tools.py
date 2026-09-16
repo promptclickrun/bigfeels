@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+import uuid
 
 # Installs the minimal host ABC only when the optional Hermes checkout is absent.
 import test_adapters  # noqa: F401
@@ -166,7 +167,8 @@ class HermesAdapterToolTests(unittest.TestCase):
         self.assertEqual(tokenless, {"error": {"message": "Invalid memory tool arguments."}})
 
     def test_invalid_calls_and_service_failures_do_not_echo_arguments_or_credentials(self) -> None:
-        secret = "private-token-and-argument"
+        # Generate a synthetic marker; never ship a credential-shaped literal.
+        secret = uuid.uuid4().hex
 
         def failing_post(_operation: str, _payload: dict[str, object]) -> dict[str, object]:
             raise RuntimeError(f"request failed with {secret}")

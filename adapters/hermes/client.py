@@ -14,6 +14,10 @@ from typing import Any
 class BigfeelsUnavailable(RuntimeError):
     """The local memory service could not complete a request."""
 
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
 
 _MAX_RESPONSE_BYTES = 1024 * 1024
 
@@ -97,7 +101,8 @@ class BigfeelsClient:
         except urllib.error.HTTPError as exc:
             try:
                 raise BigfeelsUnavailable(
-                    f"bigfeels /v1/{operation} unavailable (HTTP {exc.code})"
+                    f"bigfeels /v1/{operation} unavailable (HTTP {exc.code})",
+                    status=exc.code,
                 ) from None
             finally:
                 exc.close()

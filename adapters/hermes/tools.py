@@ -156,6 +156,15 @@ _OPERATIONS = {
     "bigfeels_forget": "forget",
     "bigfeels_status": "status",
 }
+_ID_OPERATIONS = frozenset(
+    {
+        "bigfeels_inspect",
+        "bigfeels_remember",
+        "bigfeels_correct",
+        "bigfeels_forget_preview",
+        "bigfeels_forget",
+    }
+)
 _PROPERTIES = {
     schema["name"]: frozenset(schema["parameters"]["properties"]) for schema in _SCHEMAS
 }
@@ -167,8 +176,21 @@ def tool_schemas() -> list[dict[str, Any]]:
     return copy.deepcopy(list(_SCHEMAS))
 
 
-def _error(message: str) -> str:
-    return json.dumps({"error": {"message": message}}, separators=(",", ":"))
+def _error(message: str, *, code: str | None = None) -> str:
+    error = {"message": message}
+    if code is not None:
+        error = {"code": code, **error}
+    return json.dumps({"error": error}, separators=(",", ":"))
+
+
+def _request_error(name: str, error: Exception) -> str:
+    status = getattr(error, "status", None)
+    if name in _ID_OPERATIONS and type(status) is int and status in {403, 404}:
+        return _error(
+            "Memory item was not found or is not accessible.",
+            code="not_found",
+        )
+    return _error("Memory service request failed.")
 
 
 def _configured_spaces(spaces: Sequence[str]) -> tuple[str, ...]:
@@ -243,8 +265,8 @@ def handle_tool(
         if not isinstance(result, Mapping):
             raise TypeError
         return json.dumps(dict(result), ensure_ascii=False, separators=(",", ":"))
-    except Exception:
-        return _error("Memory service request failed.")
+    except Exception as error:
+        return _request_error(name, error)
 
 
 __all__ = ["handle_tool", "tool_schemas"]
