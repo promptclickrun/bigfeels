@@ -6,6 +6,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+from bigfeels_mem.cli import _permission_disclosure
 from bigfeels_mem.local import LocalClient
 
 
@@ -13,6 +16,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ScoutPilotTests(unittest.TestCase):
+    def test_windows_permission_disclosure_never_certifies_acl_enforcement(self):
+        # Exercise the disclosure branch, not a claim of Windows execution.
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'private.txt'
+            path.write_text('Test fixture')
+            before = path.stat()
+            with patch('bigfeels_mem.cli.os', SimpleNamespace(name='nt')):
+                result = _permission_disclosure(path)
+            self.assertEqual(result['model'], 'windows_acl')
+            self.assertEqual(result['status'], 'not_verified')
+            self.assertNotIn('mode', result)
+            self.assertEqual(path.read_text(), 'Test fixture')
+            self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
+            self.assertEqual(path.stat().st_mode, before.st_mode)
+
     def run_cli(self, directory, *args, input=None):
         return subprocess.run([sys.executable, '-m', 'bigfeels_mem.cli', '--data-dir', str(directory), *args],
             input=input, text=True, capture_output=True, cwd=ROOT, timeout=20)

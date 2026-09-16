@@ -23,7 +23,7 @@ jobs:
           PYTHONPATH: src
         run: python -W error::ResourceWarning -m unittest discover -s tests -v
       - name: Node tests
-        run: python -c "import glob,subprocess; subprocess.check_call(['node','--test','adapters/openclaw/test.mjs','adapters/openclaw/tools.test.mjs',*sorted(glob.glob('tests/*.test.mjs'))])"
+        run: python -c "import glob,os,subprocess,sys; subprocess.check_call(['node','--test','adapters/openclaw/test.mjs','adapters/openclaw/tools.test.mjs',*sorted(glob.glob('tests/*.test.mjs'))],env={**os.environ,'BIGFEELS_TEST_PYTHON':sys.executable})"
       - name: Replay benchmark
         env:
           PYTHONPATH: src

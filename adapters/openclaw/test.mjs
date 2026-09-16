@@ -12,6 +12,7 @@ import { toolDefinitions } from "./tools.js";
 
 const servers = [];
 const dataDirectories = [];
+const nativePython = process.env.BIGFEELS_TEST_PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((resolve) => server.close(resolve))));
@@ -336,10 +337,10 @@ test("plain HTTP service must be loopback", () => {
   );
 });
 
-test("empty config defaults to native Python child storage without network auth", async () => {
+test("native Python child storage works without network auth", async () => {
   const environments = [];
   const adapter = createOpenClawAdapter({
-    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000 },
+    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000, pythonPath: nativePython },
     fetchImpl: async () => {
       throw new Error("native mode must not call fetch");
     },
@@ -366,7 +367,7 @@ test("empty config defaults to native Python child storage without network auth"
   assert.equal(saved.content, "Native child storage works");
   assert.equal(recalled.memories[0].content, "Native child storage works");
   assert.ok(environments.length >= 2);
-  assert.ok(environments.every(({ command }) => command === "python3"));
+  assert.ok(environments.every(({ command }) => command === nativePython));
   assert.ok(environments.every(({ env }) => env.PYTHONUTF8 === "1"));
   assert.ok(environments.every(({ env }) => !Object.keys(env).some((key) => /API|TOKEN|SECRET|KEY/i.test(key))));
 });
@@ -374,7 +375,7 @@ test("empty config defaults to native Python child storage without network auth"
 test("native extraction uses the host model callback and inherits its model boundary", async () => {
   const completions = [];
   const adapter = createOpenClawAdapter({
-    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000 },
+    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000, pythonPath: nativePython },
     complete: async (request) => {
       completions.push(request);
       return {
