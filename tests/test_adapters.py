@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -185,6 +186,94 @@ class HermesAdapterTests(unittest.TestCase):
         self.assertEqual(
             _MemoryHandler.requests[0]["authorization"], "Bearer top-secret-token"
         )
+
+    def test_native_deleted_missing_and_denied_ids_return_the_same_safe_not_found_error(self) -> None:
+        from adapters.hermes import BigfeelsMemoryProvider
+
+        expected = {
+            "error": {
+                "code": "not_found",
+                "message": "Memory item was not found or is not accessible.",
+            }
+        }
+        with tempfile.TemporaryDirectory() as data_dir:
+            private = BigfeelsMemoryProvider(
+                {
+                    "data_dir": data_dir,
+                    "owner_space": "project:private",
+                    "write_space": "project:private",
+                    "auto_extract": False,
+                }
+            )
+            private.initialize("private-session", platform="cli", agent_context="primary")
+            private_memory = json.loads(
+                private.handle_tool_call(
+                    "bigfeels_remember", {"content": "Synthetic private memory."}
+                )
+            )
+            self.assertEqual(
+                json.loads(
+                    private.handle_tool_call(
+                        "bigfeels_inspect", {"id": private_memory["id"]}
+                    )
+                )["content"],
+                "Synthetic private memory.",
+            )
+            private.shutdown()
+
+            owner = BigfeelsMemoryProvider(
+                {"data_dir": data_dir, "auto_extract": False}
+            )
+            owner.initialize("owner-session", platform="cli", agent_context="primary")
+            saved = json.loads(
+                owner.handle_tool_call(
+                    "bigfeels_remember", {"content": "Synthetic deleted memory."}
+                )
+            )
+            preview = json.loads(
+                owner.handle_tool_call("bigfeels_forget_preview", {"id": saved["id"]})
+            )
+            deleted = json.loads(
+                owner.handle_tool_call(
+                    "bigfeels_forget",
+                    {"id": saved["id"], "plan_token": preview["plan_token"]},
+                )
+            )
+            self.assertEqual(deleted["status"], "deleted")
+
+            results = [
+                json.loads(owner.handle_tool_call("bigfeels_inspect", {"id": item_id}))
+                for item_id in (
+                    saved["id"],
+                    "mem_nonexistent_synthetic_id",
+                    private_memory["id"],
+                )
+            ]
+            owner.shutdown()
+
+        self.assertEqual(results, [expected, expected, expected])
+
+    def test_http_missing_and_denied_ids_return_the_same_safe_not_found_error(self) -> None:
+        expected = {
+            "error": {
+                "code": "not_found",
+                "message": "Memory item was not found or is not accessible.",
+            }
+        }
+        with memory_service() as base_url:
+            provider = self.make_provider(base_url)
+            results = []
+            for status in (404, 403):
+                _MemoryHandler.status_by_path["/v1/inspect"] = status
+                results.append(
+                    json.loads(
+                        provider.handle_tool_call(
+                            "bigfeels_inspect", {"id": "mem_synthetic_id"}
+                        )
+                    )
+                )
+
+        self.assertEqual(results, [expected, expected])
 
     def test_recall_and_capture_preserve_roles_ids_scopes_and_provenance(self) -> None:
         with memory_service() as base_url:
