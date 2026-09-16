@@ -2,8 +2,10 @@
 import argparse
 import json
 import os
+import platform
 from pathlib import Path
 import sqlite3
+import stat
 import sys
 import tempfile
 import urllib.parse
@@ -220,6 +222,10 @@ def build_parser():
     mcp.add_argument('--url', help='Optional HTTP service URL; otherwise use local storage directly')
     mcp.add_argument('--token-env', default='BIGFEELS_MEM_TOKEN')
     mcp.add_argument('--space', action='append', dest='spaces', help='Local memory scope (default: owner)')
+    mcp.add_argument(
+        '--explicit-only', action='store_true',
+        help='Disable observe/process and use local storage without providers or remote recall',
+    )
     return parser
 
 
@@ -245,12 +251,57 @@ def _local(data_dir, config_path, spaces, *, processing=False, name='cli'):
     return client
 
 
+def _permission_disclosure(path):
+    path = Path(path)
+    disclosure = {'path': str(path), 'exists': path.exists()}
+    if os.name == 'nt':
+        disclosure.update({
+            'model': 'windows_acl',
+            'status': 'not_verified',
+            'note': ('os.chmod does not configure or verify Windows ACLs; secure this path with an '
+                     'administrator-reviewed ACL.'),
+        })
+        return disclosure
+    disclosure['model'] = 'posix_mode_bits'
+    if not path.exists():
+        disclosure['status'] = 'missing'
+        return disclosure
+    mode = stat.S_IMODE(path.stat().st_mode)
+    disclosure.update({
+        'mode': f'{mode:04o}',
+        'status': 'private_mode_bits' if mode & 0o077 == 0 else 'group_or_other_accessible',
+        'note': 'Mode-bit inspection does not verify ACLs or remote filesystem enforcement.',
+    })
+    return disclosure
+
+
 def _doctor(database_path, config_path):
+    data_directory = database_path.parent
     result = {
         'status': 'ok',
         'database': 'missing',
         'config': 'missing',
         'providers': {'extraction': 'not_configured', 'embeddings': 'not_configured'},
+        'runtime': {
+            'python': platform.python_version(),
+            'minimum_python': '3.11',
+            'supported': sys.version_info >= (3, 11),
+            'platform': sys.platform,
+        },
+        'privacy': {
+            'directory_permissions': _permission_disclosure(data_directory),
+            'database_permissions': _permission_disclosure(database_path),
+            'config_permissions': _permission_disclosure(config_path),
+            'filesystem_locality': 'not_verified',
+            'filesystem_sync': 'not_verified',
+            'limitations': [
+                ('Doctor cannot determine whether storage is local, network-mounted, cloud-synced, backed up, '
+                 'or copied by another process.'),
+                ('Nonlocal and synced filesystems can retain or replicate plaintext database, WAL, config, and '
+                 'export data outside this process.'),
+                'Memory spaces are application scopes, not an OS sandbox for processes with filesystem access.',
+            ],
+        },
     }
     if database_path.exists():
         database_uri = database_path.resolve().as_uri() + '?mode=ro&immutable=1'
@@ -277,7 +328,14 @@ def _doctor(database_path, config_path):
             result['api_key_environment'] = {'name': provider.key_env, 'present': key_present}
     if result['config'] == 'missing':
         result['config'] = 'optional_for_native_hosts'
-    if result['database'] != 'ok':
+    permissions = (
+        result['privacy']['directory_permissions'],
+        result['privacy']['database_permissions'],
+        result['privacy']['config_permissions'],
+    )
+    if (result['database'] != 'ok' or not result['runtime']['supported'] or
+            any(item['status'] in ('not_verified', 'group_or_other_accessible')
+                for item in permissions if item['exists'])):
         result['status'] = 'needs_attention'
     return result
 
@@ -426,10 +484,23 @@ def main(argv=None, stdout=None, stderr=None):
         elif args.command == 'maintenance':
             _write(stdout, {'status': 'ok', **Store(database_path).maintenance()})
         elif args.command == 'mcp':
-            client = (MemoryClient(args.url, _token(args.token_env)) if args.url else
-                      _local(data_dir, config_path, args.spaces, processing=True, name='mcp'))
+            if args.explicit_only and args.url:
+                raise ValueError('mcp --explicit-only cannot be combined with --url')
+            if args.url:
+                client = MemoryClient(args.url, _token(args.token_env))
+            elif args.explicit_only:
+                # This mode deliberately bypasses config loading and provider setup.
+                # Recall remains local lexical retrieval and no extraction worker exists.
+                client = LocalClient(
+                    data_dir, spaces=args.spaces or ['owner'], name='mcp-explicit-only',
+                    auto_process=False,
+                )
+            else:
+                client = _local(
+                    data_dir, config_path, args.spaces, processing=True, name='mcp',
+                )
             try:
-                serve_stdio(client, sys.stdin, stdout)
+                serve_stdio(client, sys.stdin, stdout, explicit_only=args.explicit_only)
             finally:
                 if isinstance(client, LocalClient):
                     client.close()

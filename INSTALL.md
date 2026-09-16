@@ -38,6 +38,16 @@ Use that executable as the MCP command with arguments:
 
 No bearer token or HTTP server is needed for direct CLI or local MCP. The client decides which explicit memories to save. MCP alone cannot automatically observe a host's conversation lifecycle.
 
+For a host that must expose only explicit memory operations, use:
+
+```text
+--data-dir /absolute/private/customer-data mcp --explicit-only --space customer:example
+```
+
+`--explicit-only` hides and rejects observe/process, cannot be combined with `--url`, and bypasses standalone provider configuration. Use a separate private data directory and scope for each customer.
+
+An older host interpreter does not change the engine requirement. Configure the stdio command as the absolute path to a Python 3.11+ environment and start `-m bigfeels_mem.cli`; do not import bigfeels into a Python 3.9 host. See the exact POSIX and Windows JSON launch descriptors, including paths containing spaces, in [docs/scout-pilot.md](docs/scout-pilot.md). That guide is a portable stdio boundary, not a proprietary host registration API.
+
 For HTTP and the browser workspace, pair a credential scoped to the spaces it needs, then run the service:
 
 ```sh
@@ -84,7 +94,7 @@ Then follow [adapters/openclaw/README.md](adapters/openclaw/README.md) for the m
 
 ## Verify honestly
 
-For every interface you install:
+For every interface you install, first run `doctor` and review its runtime and permissions disclosure. Windows ACLs and local/nonsynced storage require administrator verification; `os.chmod` and Doctor do not enforce or prove them. Then:
 
 1. save a harmless unique memory in an explicit space;
 2. search and inspect it;
