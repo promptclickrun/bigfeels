@@ -6,7 +6,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python: ['3.11', '3.14']
     runs-on: ${{ matrix.os }}
     steps:
@@ -18,9 +18,21 @@ jobs:
         with:
           node-version: '22'
       - run: python -m pip install build
-      - run: PYTHONPATH=src python -W error::ResourceWarning -m unittest discover -s tests -v
-      - run: node --test adapters/openclaw/test.mjs adapters/openclaw/tools.test.mjs tests/*.test.mjs
-      - run: PYTHONPATH=src python benchmarks/replay.py
+      - name: Python tests
+        env:
+          PYTHONPATH: src
+        run: python -W error::ResourceWarning -m unittest discover -s tests -v
+      - name: Node tests
+        run: python -c "import glob,os,subprocess,sys; subprocess.check_call(['node','--test','adapters/openclaw/test.mjs','adapters/openclaw/tools.test.mjs',*sorted(glob.glob('tests/*.test.mjs'))],env={**os.environ,'BIGFEELS_TEST_PYTHON':sys.executable})"
+      - name: Replay benchmark
+        env:
+          PYTHONPATH: src
+        run: python benchmarks/replay.py
       - run: python -m build
-      - run: python -m pip install dist/*.whl
-      - run: bigfeels-mem --help
+      - name: Install built wheel
+        run: python -c "import glob,subprocess,sys; wheels=glob.glob('dist/*.whl'); assert len(wheels)==1, wheels; subprocess.check_call([sys.executable,'-m','pip','install',wheels[0]])"
+      - name: Verify installed wheel launches
+        run: |
+          bigfeels-mem --help
+          python -m bigfeels_mem.cli --help
+          python -m bigfeels_mem.cli --data-dir "CI Data With Spaces" mcp --explicit-only --help

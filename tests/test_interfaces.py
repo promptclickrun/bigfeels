@@ -456,11 +456,14 @@ const forget = card.children[3].children[2];
         export_parent = Path(self.tmp.name) / 'existing-parent'
         export_parent.mkdir(mode=0o755)
         os.chmod(export_parent, 0o755)
+        parent_mode = stat.S_IMODE(export_parent.stat().st_mode)
         output = export_parent / 'memory.json'
         environment = {'TEST_MEMORY_TOKEN': token}
         first = self.cli(source_dir, 'export', '--output', str(output), '--token-env', 'TEST_MEMORY_TOKEN', env=environment)
         self.assertEqual(first.returncode, 0, first.stderr)
-        self.assertEqual(stat.S_IMODE(export_parent.stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE(export_parent.stat().st_mode), parent_mode)
+        if os.name != 'nt':
+            self.assertEqual(parent_mode, 0o755)
         original = output.read_bytes()
         second = self.cli(source_dir, 'export', '--output', str(output), '--token-env', 'TEST_MEMORY_TOKEN', env=environment)
         self.assertNotEqual(second.returncode, 0)
@@ -479,21 +482,32 @@ const forget = card.children[3].children[2];
         database = data_dir / 'memory.sqlite'
         os.chmod(database, 0o640)
         before = database.stat()
+        before_content = database.read_bytes()
         result = self.cli(data_dir, 'doctor')
         after = database.stat()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(stat.S_IMODE(after.st_mode), 0o640)
+        self.assertEqual(stat.S_IMODE(after.st_mode), stat.S_IMODE(before.st_mode))
         self.assertEqual(after.st_mtime_ns, before.st_mtime_ns)
+        self.assertEqual(database.read_bytes(), before_content)
+        if os.name == 'nt':
+            permission = json.loads(result.stdout)['privacy']['database_permissions']
+            self.assertEqual(permission['model'], 'windows_acl')
+            self.assertEqual(permission['status'], 'not_verified')
+        else:
+            self.assertEqual(stat.S_IMODE(after.st_mode), 0o640)
 
     def test_cli_init_does_not_change_existing_data_directory_permissions(self):
         data_dir = Path(self.tmp.name) / 'preexisting-data-dir'
         data_dir.mkdir(mode=0o755)
         os.chmod(data_dir, 0o755)
+        directory_mode = stat.S_IMODE(data_dir.stat().st_mode)
         result = self.cli(data_dir, 'init')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(stat.S_IMODE(data_dir.stat().st_mode), 0o755)
-        self.assertEqual(stat.S_IMODE((data_dir / 'memory.sqlite').stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE((data_dir / 'config.json').stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(data_dir.stat().st_mode), directory_mode)
+        if os.name != 'nt':
+            self.assertEqual(directory_mode, 0o755)
+            self.assertEqual(stat.S_IMODE((data_dir / 'memory.sqlite').stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE((data_dir / 'config.json').stat().st_mode), 0o600)
 
     def test_cli_configure_stores_only_provider_key_environment_name(self):
         data_dir = Path(self.tmp.name) / 'configured'

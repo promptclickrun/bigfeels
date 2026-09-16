@@ -57,6 +57,8 @@ Configure the MCP command as `bigfeels-mem` with arguments `mcp`. Use the execut
 
 MCP exposes explicit remember, context, search, inspect, correct, deletion preview, token-confirmed deletion, status, export, observe, and bounded process tools in direct-local and authenticated loopback HTTP modes. Explicit saves and recall work without a model provider. `memory_observe` only queues source evidence. MCP cannot see an arbitrary host's conversation lifecycle, so it does not promise universal automatic capture. `memory_process` needs a configured extractor; inspect `memory_status` for pending, failed, retry, and provider state. See [docs/advanced.md](docs/advanced.md).
 
+For a capture-free integration, add `--explicit-only` after `mcp`. That opt-in mode hides and rejects observe/process, rejects `--url`, and bypasses provider configuration so recall remains local. A host running an older Python can launch a separate Python 3.11+ stdio process instead of importing the engine. The bounded Scout deployment pattern, Windows paths-with-spaces JSON, customer isolation, migration boundary, and rollback procedure are in [docs/scout-pilot.md](docs/scout-pilot.md).
+
 ## HTTP API and browser workspace
 
 The standalone service is optional. It binds only to loopback and requires a scoped bearer credential.
@@ -82,7 +84,7 @@ Adapters can provide automatic capture because they participate in a host's life
 
 Storage is local SQLite. Memories retain source evidence, validity, revision history, and uncertainty. Retrieval is scoped before ranking. Remembered text is contextual evidence, never authorization.
 
-Local scopes constrain integrations and model submissions, but they are not an OS sandbox against another process that can read the same database. Use separate private data directories or OS accounts for separate people. Exports are plaintext.
+Local scopes constrain integrations and model submissions, but they are not an OS sandbox against another process that can read the same database. Use separate private data directories or OS accounts for separate people. Exports are plaintext. `doctor` reports runtime and permission observations, but it cannot verify Windows ACLs, filesystem locality, synchronization, backups, or copies.
 
 [Design](docs/design.md) · [Operations](docs/operations.md) · [Compatibility](docs/compatibility.md) · [Verification](docs/verification.md)
 
