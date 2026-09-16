@@ -1,10 +1,87 @@
 """Safety regressions for same-key facts; no model or live store required."""
 import tempfile
+import random
 import unittest
+from unittest.mock import patch
+from bigfeels_mem.retrieval import claims_compatible, conflicting_claim_ids
 from bigfeels_mem.local import LocalClient
 
 
 class ClaimConflictTests(unittest.TestCase):
+    def test_interval_sweep_matches_pairwise_reference(self):
+        rng = random.Random(410)
+        for _ in range(100):
+            records = []
+            for index in range(40):
+                start = rng.randrange(1, 20)
+                end = rng.randrange(start + 1, 25)
+                records.append({'id':str(index), 'content':rng.choice(['A', 'a.', 'B', 'C']),
+                    'valid_from':f'2026-01-{start:02}T00:00:00Z',
+                    'valid_until':None if rng.random() < .2 else f'2026-01-{end:02}T00:00:00Z'})
+            targets = rng.sample(records, rng.randrange(len(records)))
+            expected = {a['id'] for a in records for b in targets
+                if (a['valid_until'] is None or b['valid_from'] < a['valid_until'])
+                and (b['valid_until'] is None or a['valid_from'] < b['valid_until'])
+                and not claims_compatible(a['content'], b['content'])}
+            self.assertEqual(conflicting_claim_ids(records, targets), expected)
+
+    def test_corrected_slot_cannot_be_recreated_by_reworded_old_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            client = LocalClient(td, auto_process=False)
+            try:
+                evidence = client.call('observe', {'space':'owner', 'source':'test', 'source_event_id':'one',
+                    'session_id':'one', 'speaker':'user', 'content':'For backend scripts, we use PostgreSQL.',
+                    'occurred_at':'2025-01-01T00:00:00Z'})
+                old = client.call('remember', {'space':'owner', 'key':'database', 'content':'We use PostgreSQL.',
+                    'evidence_ids':[evidence['id']], 'valid_from':'2025-01-01T00:00:00Z'})
+                current = client.call('correct', {'id':old['id'], 'revision':old['revision'],
+                    'content':'We use SQLite.', 'valid_from':'2026-01-01T00:00:00Z'})
+                class Extractor:
+                    def extract(self, evidence):
+                        return [{'content':'We use PostgreSQL.', 'quote':'we use PostgreSQL.', 'key':'database', 'basis':'direct'},
+                                {'content':'Backend scripts exist.', 'key':'other-slot', 'basis':'inferred'}]
+                self.assertTrue(client.store.process_one(Extractor()))
+                result = client.call('context', {'query':'database', 'budget':16000})
+                self.assertEqual([m['id'] for m in result['memories']], [current['id']])
+                self.assertFalse(result['warnings'])
+                self.assertEqual(client.call('status', {})['memories'], 3)
+            finally:
+                client.close()
+
+    def test_legacy_projection_does_not_compare_every_pair(self):
+        with tempfile.TemporaryDirectory() as td:
+            client = LocalClient(td, auto_process=False)
+            try:
+                with client.store.connection(True) as connection:
+                    connection.executemany('INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                        [(f'mem_{i}', 'owner', f'Atlas budget {i} USD', 'fact', 'direct', 'unspecified',
+                          'atlas', 'active', 1, '2025-01-01T00:00:00.000000Z', '2025-01-01T00:00:00.000000Z', None)
+                         for i in range(80)])
+                with patch('bigfeels_mem.store.claims_compatible', wraps=claims_compatible) as compare:
+                    unrelated = client.call('context', {'query':'unrelated zebras', 'budget':1})
+                    self.assertEqual(compare.call_count, 0)
+                    self.assertFalse(unrelated['warnings'])
+                    result = client.call('context', {'query':'Atlas', 'budget':1})
+                    self.assertTrue(result['warnings'])
+                    self.assertEqual(result['trace']['matched'], 80)
+                    self.assertLessEqual(compare.call_count, 240)
+            finally:
+                client.close()
+
+    def test_new_conflict_relations_are_sparse(self):
+        with tempfile.TemporaryDirectory() as td:
+            client = LocalClient(td, auto_process=False)
+            try:
+                for i in range(12):
+                    client.call('remember', {'space':'owner', 'key':'atlas', 'content':f'Atlas budget {i} USD'})
+                with client.store.connection() as connection:
+                    self.assertLessEqual(connection.execute('SELECT COUNT(*) FROM relations').fetchone()[0], 12)
+                result = client.call('context', {'query':'Atlas', 'budget':16000})
+                self.assertEqual(len(result['memories']), 12)
+                self.assertEqual({m['status'] for m in result['memories']}, {'disputed'})
+            finally:
+                client.close()
+
     def test_changed_values_are_disputed_and_warn_on_recall(self):
         pairs = [
             ('Approved budget for project Atlas is 10000 USD', 'Approved budget for project Atlas is 20000 USD'),

@@ -13,8 +13,8 @@ import uuid
 
 from .privacy import redact
 from .retrieval import (
-    claims_compatible, cosine, fts_query, lexical_matches, lexical_score,
-    token_cost,
+    claims_compatible, conflicting_claim_ids, cosine, fts_query, lexical_matches,
+    lexical_score, normalized_claim, token_cost,
 )
 from .schema import JOB_DIAGNOSTIC_COLUMNS, SCHEMA, migrate_schema, validate_schema
 
@@ -84,9 +84,6 @@ def string_list(value, name):
         raise MemoryError(f'{name} must be a list of strings')
     return list(dict.fromkeys(value))
 
-
-def normalized_claim(value):
-    return ' '.join(value.casefold().strip().rstrip('.!?').split())
 
 
 def grounded_claim_content(source, quote, claim):
@@ -350,7 +347,9 @@ class Store:
         c.execute('INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                   (mid, space, content, kind, basis, outcome, key, status, 1, now(), start, end))
         c.executemany('INSERT INTO supports VALUES (?,?)', [(mid, e) for e in evidence_ids])
-        for row in conflicts:
+        # One witness edge per new assertion avoids a dense all-pairs graph.
+        # Recall derives the complete eligible conflict set from the keyed slot.
+        for row in conflicts[:1]:
             c.execute('INSERT INTO relations VALUES (?,?,?)', (mid, row[0], 'contradicts'))
         return self._memory(c, p, mid)
 
@@ -570,22 +569,17 @@ class Store:
             # a permissive overlap heuristic cannot silently retain conflicts.
             # This is a read projection, not an unrequested database migration.
             keyed = {}
-            conflicts = {}
+            conflicts = set()
+            matched_keys = {(eligible[mid]['space'], eligible[mid]['key']) for mid in scores}
             for mid, record in eligible.items():
-                if record['key'] and record['status'] in ('active', 'disputed'):
+                if (record['key'] and record['status'] in ('active', 'disputed')
+                        and (record['space'], record['key']) in matched_keys):
                     keyed.setdefault((record['space'], record['key']), []).append(mid)
             for group in keyed.values():
-                for index, left in enumerate(group):
-                    a = eligible[left]
-                    for right in group[index + 1:]:
-                        b = eligible[right]
-                        overlaps = ((a['valid_until'] is None or b['valid_from'] < a['valid_until'])
-                                    and (b['valid_until'] is None or a['valid_from'] < b['valid_until']))
-                        if overlaps and not claims_compatible(a['content'], b['content']):
-                            conflicts.setdefault(left, set()).add(right)
-                            conflicts.setdefault(right, set()).add(left)
-            for mid in list(scores):
-                for neighbor in conflicts.get(mid, ()):
+                records = [eligible[mid] for mid in group]
+                matched = [eligible[mid] for mid in group if mid in scores]
+                conflicts.update(conflicting_claim_ids(records, records))
+                for neighbor in conflicting_claim_ids(records, matched):
                     if neighbor not in scores:
                         scores[neighbor] = 0.5
                         reasons[neighbor] = ['conflicting_evidence']
@@ -756,9 +750,11 @@ class Store:
             "WHERE s.evidence_id=? AND old.status='superseded'",
             (evidence_id,))
         claim = normalized_claim(content)
-        return any(row['key'] == key and (
-                       normalized_claim(row['content']) == claim
-                       or claims_compatible(row['content'], content))
+        # A corrected keyed slot cannot be rewritten from the same old source,
+        # regardless of the extractor's paraphrase or newly restored qualifier.
+        # Unkeyed evidence can support unrelated facts, so require equality there.
+        return any(row['key'] == key and (key is not None or
+                       normalized_claim(row['content']) == claim)
                    for row in rows)
 
     def _finish_failed_attempt(self, c, evidence_id, lease, error, *, rejected=0,

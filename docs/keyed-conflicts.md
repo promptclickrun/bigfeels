@@ -10,4 +10,6 @@ Existing stores may contain incompatible claims left active by older releases. R
 
 ## Regression coverage
 
+Legacy projection checks relevant keyed groups with an interval sweep, not all claim pairs. New saves retain one contradiction witness rather than a complete pairwise graph. The full potential-conflict set is derived during recall. Delayed extraction from evidence already corrected in a keyed slot is suppressed regardless of changed wording; other slots in that evidence remain eligible.
+
 `tests/test_claim_conflicts.py` exercises changed amounts, decimals, signs, dates, currencies, owners, reversed relationships, negation, legacy records, tight budgets, cosmetic repeats, scope isolation and nonoverlapping periods. The existing grounded-extraction regression now deliberately treats a changed qualifier as requiring review while retaining both source records.

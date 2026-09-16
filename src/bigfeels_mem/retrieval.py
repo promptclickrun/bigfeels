@@ -85,6 +85,10 @@ def lexical_score(query, content, key=None):
     return len(matched) / len(wanted) + min(len(matched), 4) / 10
 
 
+def normalized_claim(value):
+    return ' '.join(value.casefold().strip().rstrip('.!?').split())
+
+
 def claims_compatible(first, second):
     """Only cosmetic differences establish agreement in a single keyed slot.
 
@@ -92,9 +96,34 @@ def claims_compatible(first, second):
     owner, unit, qualifier, or word order can reverse a claim. Non-equivalence
     means *potential* conflict requiring review, not proven contradiction.
     """
-    def normalized(value):
-        return ' '.join(value.casefold().strip().rstrip('.!?').split())
-    return normalized(first) == normalized(second)
+    return normalized_claim(first) == normalized_claim(second)
+
+
+def conflicting_claim_ids(records, targets):
+    """Find interval overlaps with a different claim in O(n log n), O(n) space.
+
+    Inputs belong to one authorized key. Sweep targets by start while visiting
+    records by end. The two furthest ends with distinct content suffice to
+    find an overlapping alternative, without materializing every pair.
+    """
+    infinity = '\uffff'
+    ordered = sorted(targets, key=lambda m: m['valid_from'])
+    cursor, furthest, conflicts = 0, {}, set()
+    for record in sorted(records, key=lambda m: m['valid_until'] or infinity):
+        end = record['valid_until'] or infinity
+        while cursor < len(ordered) and ordered[cursor]['valid_from'] < end:
+            target = ordered[cursor]
+            claim = normalized_claim(target['content'])
+            target_end = target['valid_until'] or infinity
+            furthest[claim] = max(furthest.get(claim, ''), target_end)
+            if len(furthest) > 2:
+                del furthest[min(furthest, key=lambda value: furthest[value])]
+            cursor += 1
+        claim = normalized_claim(record['content'])
+        if any(other != claim and end > record['valid_from']
+               for other, end in furthest.items()):
+            conflicts.add(record['id'])
+    return conflicts
 
 
 def cosine(a, b):

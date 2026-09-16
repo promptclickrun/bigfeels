@@ -49,6 +49,7 @@ END;
 CREATE INDEX IF NOT EXISTS evidence_space ON evidence(space);
 CREATE INDEX IF NOT EXISTS memories_space ON memories(space,status);
 CREATE INDEX IF NOT EXISTS supports_evidence ON supports(evidence_id);
+CREATE INDEX IF NOT EXISTS relations_target ON relations(target_id,kind);
 """
 
 
