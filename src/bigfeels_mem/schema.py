@@ -49,6 +49,7 @@ END;
 CREATE INDEX IF NOT EXISTS evidence_space ON evidence(space);
 CREATE INDEX IF NOT EXISTS memories_space ON memories(space,status);
 CREATE INDEX IF NOT EXISTS supports_evidence ON supports(evidence_id);
+CREATE INDEX IF NOT EXISTS relations_target ON relations(target_id,kind);
 """
 
 
@@ -117,6 +118,7 @@ def validate_schema(connection):
 def migrate_schema(connection):
     """Bring a supported version-1 database to the latest additive layout."""
     validate_schema(connection)
+    connection.execute('CREATE INDEX IF NOT EXISTS relations_target ON relations(target_id,kind)')
     present = {row[1] for row in connection.execute('PRAGMA table_info(jobs)')}
     for name, definition in JOB_DIAGNOSTIC_COLUMNS.items():
         if name not in present:
