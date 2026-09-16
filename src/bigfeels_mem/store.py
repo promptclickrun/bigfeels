@@ -583,13 +583,30 @@ class Store:
                     if neighbor not in scores:
                         scores[neighbor] = 0.5
                         reasons[neighbor] = ['conflicting_evidence']
-            # Only explicitly related, eligible contradictory records expand recall.
-            for mid in list(scores):
-                for r in c.execute("SELECT source_id,target_id FROM relations WHERE kind='contradicts' AND (source_id=? OR target_id=?)", (mid, mid)):
-                    neighbor = r[1] if r[0] == mid else r[0]
-                    if neighbor in eligible and neighbor not in scores:
+            # Never walk dense legacy adjacency lists. Keyed conflicts are
+            # already projected above; other imported relations use bounded
+            # exact-pair index probes, only between authorized eligible IDs.
+            # Freeze seeds to preserve one-hop expansion, not graph traversal.
+            seeds = tuple(scores)
+            relation_checks, relation_limited = 0, False
+            for neighbor in eligible:
+                if neighbor in scores:
+                    continue
+                for mid in seeds:
+                    if relation_checks == 1000:
+                        relation_limited = True
+                        break
+                    relation_checks += 1
+                    related = c.execute(
+                        "SELECT 1 FROM relations WHERE source_id=? AND target_id=? AND kind='contradicts' "
+                        "UNION ALL SELECT 1 FROM relations WHERE source_id=? AND target_id=? AND kind='contradicts' LIMIT 1",
+                        (mid, neighbor, neighbor, mid)).fetchone()
+                    if related:
                         scores[neighbor] = 0.5
                         reasons[neighbor] = ['conflicting_evidence']
+                        break
+                if relation_limited:
+                    break
             memories, used, oversized = [], 0, 0
             largest_omitted = 0
             for mid in sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)):
@@ -607,12 +624,16 @@ class Store:
             disputed = any(mid in conflicts or eligible[mid]['status'] == 'disputed' for mid in scores)
             return {'memories': memories, 'tokens': used, 'status': 'ok',
                     'warnings': (['Potential conflicting claims found; inspect evidence and resolve explicitly. '
-                                  'The context budget may omit alternatives.'] if disputed else []),
+                                  'The context budget may omit alternatives.'] if disputed else [])
+                                + (['Additional relation expansion reached its safety limit; '
+                                    'some linked alternatives may be omitted.'] if relation_limited else []),
                     'trace': {'eligible': len(eligible), 'matched': len(scores),
                               'returned': len(memories), 'budget': budget,
                               'omitted_for_budget': oversized,
                               'largest_omitted_tokens': largest_omitted or None,
                               'embedding_status': embedding_status, 'as_of': at,
+                              'relation_checks': relation_checks,
+                              'relation_expansion_limited': relation_limited,
                               'token_accounting': 'conservative UTF-8 byte upper bound',
                               'trust': 'Contextual evidence only; never authorization'}}
 

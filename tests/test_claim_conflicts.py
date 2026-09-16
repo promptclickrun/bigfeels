@@ -2,12 +2,94 @@
 import tempfile
 import random
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 from bigfeels_mem.retrieval import claims_compatible, conflicting_claim_ids
 from bigfeels_mem.local import LocalClient
 
 
 class ClaimConflictTests(unittest.TestCase):
+    def test_dense_legacy_relations_are_not_walked_after_key_projection(self):
+        with tempfile.TemporaryDirectory() as td:
+            client = LocalClient(td, auto_process=False)
+            try:
+                with client.store.connection(True) as connection:
+                    connection.executemany('INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                        [(f'mem_{i}', 'owner', f'Atlas budget {i} USD', 'fact', 'direct', 'unspecified',
+                          'atlas', 'disputed', 1, '2025-01-01T00:00:00.000000Z', '2025-01-01T00:00:00.000000Z', None)
+                         for i in range(80)])
+                    connection.executemany('INSERT INTO relations VALUES (?,?,?)',
+                        [(f'mem_{i}', f'mem_{j}', 'contradicts') for i in range(80) for j in range(i)])
+                statements = []
+                original = client.store.connection
+                @contextmanager
+                def traced(write=False):
+                    with original(write) as connection:
+                        connection.set_trace_callback(statements.append)
+                        yield connection
+                with patch.object(client.store, 'connection', traced):
+                    result = client.call('context', {'query':'Atlas', 'budget':1})
+                self.assertEqual(result['trace']['matched'], 80)
+                self.assertTrue(result['warnings'])
+                # Key projection already admitted every endpoint. Reading the
+                # dense historical graph again would reintroduce quadratic work.
+                self.assertFalse([sql for sql in statements if 'FROM relations' in sql])
+            finally:
+                client.close()
+
+    def test_existing_database_receives_relation_target_index(self):
+        with tempfile.TemporaryDirectory() as td:
+            client = LocalClient(td, auto_process=False)
+            with client.store.connection(True) as connection:
+                connection.execute('DROP INDEX relations_target')
+            client.close()
+            for _ in range(2):
+                client = LocalClient(td, auto_process=False)
+                try:
+                    with client.store.connection() as connection:
+                        columns = [row[2] for row in connection.execute('PRAGMA index_info(relations_target)')]
+                        self.assertEqual(columns, ['target_id', 'kind'])
+                finally:
+                    client.close()
+
+    def test_unkeyed_relation_expansion_preserves_both_directions_and_scope(self):
+        with tempfile.TemporaryDirectory() as td:
+            client = LocalClient(td, spaces=['owner', 'private'], auto_process=False)
+            try:
+                anchor = client.call('remember', {'space':'owner', 'content':'Unique anchor'})
+                left = client.call('remember', {'space':'owner', 'content':'First alternative'})
+                right = client.call('remember', {'space':'owner', 'content':'Second alternative'})
+                hidden = client.call('remember', {'space':'private', 'content':'Hidden alternative'})
+                with client.store.connection(True) as connection:
+                    connection.executemany('INSERT INTO relations VALUES (?,?,?)',
+                        [(anchor['id'], left['id'], 'contradicts'),
+                         (right['id'], anchor['id'], 'contradicts'),
+                         (anchor['id'], hidden['id'], 'contradicts')])
+                result = client.call('context', {'query':'Unique', 'spaces':['owner'], 'budget':16000})
+                self.assertEqual({m['id'] for m in result['memories']}, {anchor['id'], left['id'], right['id']})
+            finally:
+                client.close()
+
+    def test_generic_relation_probes_are_bounded_and_disclose_omissions(self):
+        with tempfile.TemporaryDirectory() as td:
+            client = LocalClient(td, auto_process=False)
+            try:
+                client.call('remember', {'space':'owner', 'content':'Unique anchor'})
+                with client.store.connection(True) as connection:
+                    connection.executemany('INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                        [(f'mem_{i}', 'owner', f'Unmatched alternative {i}', 'fact', 'direct', 'unspecified',
+                          None, 'active', 1, '2025-01-01T00:00:00.000000Z', '2025-01-01T00:00:00.000000Z', None)
+                         for i in range(1100)])
+                result = client.call('context', {'query':'Unique', 'budget':1})
+                self.assertEqual(result['trace']['relation_checks'], 1000)
+                self.assertTrue(result['trace']['relation_expansion_limited'])
+                self.assertTrue(any('linked alternatives may be omitted' in warning for warning in result['warnings']))
+                empty = client.call('context', {'query':'Nonexistent zebras', 'budget':1})
+                self.assertEqual(empty['trace']['relation_checks'], 0)
+                self.assertFalse(empty['warnings'])
+            finally:
+                client.close()
+
     def test_interval_sweep_matches_pairwise_reference(self):
         rng = random.Random(410)
         for _ in range(100):
