@@ -566,6 +566,29 @@ class Store:
                             # configured index independently confirms a lexical
                             # alias match; lexical-only fallback still works.
                             reasons[mid] = ['semantic']
+            # Re-evaluate eligible keyed claims so old stores/exports written by
+            # a permissive overlap heuristic cannot silently retain conflicts.
+            # This is a read projection, not an unrequested database migration.
+            keyed = {}
+            conflicts = {}
+            for mid, record in eligible.items():
+                if record['key'] and record['status'] in ('active', 'disputed'):
+                    keyed.setdefault((record['space'], record['key']), []).append(mid)
+            for group in keyed.values():
+                for index, left in enumerate(group):
+                    a = eligible[left]
+                    for right in group[index + 1:]:
+                        b = eligible[right]
+                        overlaps = ((a['valid_until'] is None or b['valid_from'] < a['valid_until'])
+                                    and (b['valid_until'] is None or a['valid_from'] < b['valid_until']))
+                        if overlaps and not claims_compatible(a['content'], b['content']):
+                            conflicts.setdefault(left, set()).add(right)
+                            conflicts.setdefault(right, set()).add(left)
+            for mid in list(scores):
+                for neighbor in conflicts.get(mid, ()):
+                    if neighbor not in scores:
+                        scores[neighbor] = 0.5
+                        reasons[neighbor] = ['conflicting_evidence']
             # Only explicitly related, eligible contradictory records expand recall.
             for mid in list(scores):
                 for r in c.execute("SELECT source_id,target_id FROM relations WHERE kind='contradicts' AND (source_id=? OR target_id=?)", (mid, mid)):
@@ -577,6 +600,8 @@ class Store:
             largest_omitted = 0
             for mid in sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)):
                 m = self._memory(c, p, mid) if browsing else self._context_memory(c, p, mid)
+                if mid in conflicts:
+                    m['status'] = 'disputed'
                 m['reason'] = reasons[mid]
                 cost = token_cost(m)
                 if used + cost <= budget:
@@ -585,7 +610,10 @@ class Store:
                 else:
                     oversized += 1
                     largest_omitted = max(largest_omitted, cost)
+            disputed = any(mid in conflicts or eligible[mid]['status'] == 'disputed' for mid in scores)
             return {'memories': memories, 'tokens': used, 'status': 'ok',
+                    'warnings': (['Potential conflicting claims found; inspect evidence and resolve explicitly. '
+                                  'The context budget may omit alternatives.'] if disputed else []),
                     'trace': {'eligible': len(eligible), 'matched': len(scores),
                               'returned': len(memories), 'budget': budget,
                               'omitted_for_budget': oversized,

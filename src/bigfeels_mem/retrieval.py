@@ -86,17 +86,15 @@ def lexical_score(query, content, key=None):
 
 
 def claims_compatible(first, second):
-    """Conservatively avoid calling elaborations/paraphrases contradictions."""
-    a, b = set(terms(first, expand=False)), set(terms(second, expand=False))
-    if not a or not b:
-        return first.strip().casefold() == second.strip().casefold()
-    negations = {'no', 'not', 'never', 'without', 'avoid', 'forbid', 'forbidden'}
-    if bool(a & negations) != bool(b & negations):
-        return False
-    shared = a & b
-    if a <= b or b <= a:
-        return True
-    return len(shared) >= 2 and len(shared) / len(a | b) >= 0.5
+    """Only cosmetic differences establish agreement in a single keyed slot.
+
+    Lexical overlap is useful for relevance, not truth: changing one number,
+    owner, unit, qualifier, or word order can reverse a claim. Non-equivalence
+    means *potential* conflict requiring review, not proven contradiction.
+    """
+    def normalized(value):
+        return ' '.join(value.casefold().strip().rstrip('.!?').split())
+    return normalized(first) == normalized(second)
 
 
 def cosine(a, b):
