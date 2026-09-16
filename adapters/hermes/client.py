@@ -20,6 +20,32 @@ class BigfeelsUnavailable(RuntimeError):
 
 
 _MAX_RESPONSE_BYTES = 1024 * 1024
+CAPTURE_ROLES = frozenset({"user", "assistant", "tool"})
+DEFAULT_EVIDENCE_RETENTION_DAYS = 7
+MAX_EVIDENCE_RETENTION_DAYS = 3650
+
+
+def validate_capture_roles(value: object, label: str) -> tuple[str, ...]:
+    """Validate an explicit role allowlist without broadening bad input."""
+
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{label} must be a list of user, assistant, and/or tool")
+    roles = tuple(value)
+    if any(type(role) is not str or role not in CAPTURE_ROLES for role in roles):
+        raise ValueError(f"{label} may contain only user, assistant, and tool")
+    if len(set(roles)) != len(roles):
+        raise ValueError(f"{label} must not contain duplicate roles")
+    return roles
+
+
+def validate_retention_days(value: object, label: str) -> int:
+    """Require a finite raw-evidence retention window."""
+
+    if type(value) is not int or not 1 <= value <= MAX_EVIDENCE_RETENTION_DAYS:
+        raise ValueError(
+            f"{label} must be between 1 and {MAX_EVIDENCE_RETENTION_DAYS}"
+        )
+    return value
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -37,6 +63,9 @@ class AdapterConfig:
     write_space: str = ""
     budget: int = 800
     timeout: float = 0.75
+    capture_roles: tuple[str, ...] = ()
+    auto_extract: bool = False
+    evidence_retention_days: int = DEFAULT_EVIDENCE_RETENTION_DAYS
 
     @property
     def spaces(self) -> tuple[str, ...]:
@@ -64,6 +93,15 @@ class AdapterConfig:
             raise ValueError("BIGFEELS_MEM_BUDGET must be between 1 and 4000")
         if not 0 < self.timeout <= 10:
             raise ValueError("BIGFEELS_MEM_TIMEOUT must be greater than 0 and at most 10 seconds")
+        roles = validate_capture_roles(self.capture_roles, "BIGFEELS_MEM_CAPTURE_ROLES")
+        if roles != self.capture_roles:
+            object.__setattr__(self, "capture_roles", roles)
+        if not isinstance(self.auto_extract, bool):
+            raise ValueError("BIGFEELS_MEM_AUTO_EXTRACT must be boolean")
+        validate_retention_days(
+            self.evidence_retention_days,
+            "BIGFEELS_MEM_EVIDENCE_RETENTION_DAYS",
+        )
         return self
 
 

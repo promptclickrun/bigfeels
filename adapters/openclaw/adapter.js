@@ -9,6 +9,9 @@ const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const DEFAULT_NATIVE_TIMEOUT_MS = 30_000;
 const MAX_NATIVE_TIMEOUT_MS = 120_000;
+const DEFAULT_EVIDENCE_RETENTION_DAYS = 7;
+const MAX_EVIDENCE_RETENTION_DAYS = 3650;
+const ALLOWED_CAPTURE_ROLES = new Set(["user", "assistant", "tool"]);
 const PROCESS_BATCH_SIZE = 8;
 const RETRY_POLL_MS = 1_000;
 const MAX_TIMER_DELAY_MS = 2_147_000_000;
@@ -64,6 +67,24 @@ function uniqueStrings(values) {
   return [...new Set(values.filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim()))];
 }
 
+function captureRoles(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("bigfeels captureRoles must be an array");
+  if (value.some((role) => typeof role !== "string" || !ALLOWED_CAPTURE_ROLES.has(role))) {
+    throw new Error("bigfeels captureRoles may contain only user, assistant, and tool");
+  }
+  if (new Set(value).size !== value.length) throw new Error("bigfeels captureRoles must not contain duplicates");
+  return [...value];
+}
+
+function retentionDays(value) {
+  const days = value === undefined ? DEFAULT_EVIDENCE_RETENTION_DAYS : value;
+  if (!Number.isInteger(days) || days < 1 || days > MAX_EVIDENCE_RETENTION_DAYS) {
+    throw new Error(`bigfeels evidenceRetentionDays must be between 1 and ${MAX_EVIDENCE_RETENTION_DAYS}`);
+  }
+  return days;
+}
+
 function validateConfig(value) {
   if (value === undefined || value === null) value = {};
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("bigfeels config must be an object");
@@ -102,9 +123,18 @@ function validateConfig(value) {
       : DEFAULT_NATIVE_TIMEOUT_MS,
     pythonPath: typeof value.pythonPath === "string" && value.pythonPath.trim() ? value.pythonPath.trim() : "python3",
     dataDir: typeof value.dataDir === "string" && value.dataDir.trim() ? value.dataDir.trim() : "",
+    captureRoles: captureRoles(value.captureRoles),
+    evidenceRetentionDays: retentionDays(value.evidenceRetentionDays),
     autoCapture: value.autoCapture !== false,
+    autoExtract: value.autoExtract === true,
     autoRecall: value.autoRecall !== false,
   };
+
+  for (const key of ["autoCapture", "autoExtract", "autoRecall"]) {
+    if (value[key] !== undefined && typeof value[key] !== "boolean") {
+      throw new Error(`bigfeels ${key} must be boolean`);
+    }
+  }
 
   if (mode === "http") {
     let parsedUrl;
@@ -183,6 +213,9 @@ export function createOpenClawAdapter({
   logger = {},
 } = {}) {
   const config = validateConfig(rawConfig);
+  const selectedCaptureRoles = new Set(config.captureRoles);
+  const automaticCaptureEnabled = config.autoCapture && selectedCaptureRoles.size > 0;
+  const extractionEnabled = automaticCaptureEnabled && config.autoExtract;
   const injectedTransport = typeof transport === "function" ? transport : postImpl;
   const runs = new Map();
   const activeSessions = new Map();
@@ -249,7 +282,7 @@ export function createOpenClawAdapter({
   }
 
   function scheduleDrain(delayMs = 0) {
-    if (config.mode !== "native" || activeSessions.size === 0) return;
+    if (!extractionEnabled || config.mode !== "native" || activeSessions.size === 0) return;
     const boundedDelay = Math.max(0, Math.min(MAX_TIMER_DELAY_MS, Math.ceil(delayMs)));
     const deadline = Date.now() + boundedDelay;
     if (retryTimer !== undefined && retryDeadline <= deadline) return;
@@ -434,7 +467,7 @@ export function createOpenClawAdapter({
       }
 
       async function completeExtraction(message) {
-        if (!eligible(completionContext) || typeof complete !== "function") {
+        if (!extractionEnabled || !eligible(completionContext) || typeof complete !== "function") {
           writeReply({ id: message.id, error: true });
           return;
         }
@@ -553,6 +586,7 @@ export function createOpenClawAdapter({
   }
 
   async function post(operation, payload, context) {
+    if (operation === "process" && !extractionEnabled) return { processed: 0 };
     if (typeof injectedTransport === "function") {
       const result = await injectedTransport(operation, payload, context);
       if (!result || typeof result !== "object" || Array.isArray(result)) throw safeError("invalid response", 502);
@@ -565,7 +599,12 @@ export function createOpenClawAdapter({
   async function beforePromptBuild(event, ctx) {
     if (!eligible(ctx) || typeof event?.prompt !== "string" || !event.prompt.trim()) return undefined;
     if (!activateSession(ctx, { reopen: true })) return undefined;
-    const state = { sessionKey: ctx.sessionKey, userContent: event.prompt, recalled: [] };
+    const state = {
+      sessionKey: ctx.sessionKey,
+      userContent: event.prompt,
+      recalled: [],
+      captureExpiresAt: runs.get(ctx.runId)?.captureExpiresAt,
+    };
     rememberRun(ctx.runId, state);
     if (!config.autoRecall) return undefined;
     try {
@@ -594,7 +633,7 @@ export function createOpenClawAdapter({
   }
 
   async function processPending(ctx) {
-    if (config.mode !== "native" || !activateSession(ctx)) return undefined;
+    if (!extractionEnabled || config.mode !== "native" || !activateSession(ctx)) return undefined;
     if (processingPromise) {
       drainRequested = true;
       return processingPromise;
@@ -646,42 +685,26 @@ export function createOpenClawAdapter({
 
   async function agentEnd(event, ctx) {
     const runId = event?.runId ?? ctx?.runId;
-    if (runId !== ctx?.runId || !eligible(ctx) || !config.autoCapture || event?.success !== true) return;
+    if (runId !== ctx?.runId || !eligible(ctx) || !automaticCaptureEnabled || event?.success !== true) return;
     const captureGeneration = activateSession(ctx);
     if (!captureGeneration) return;
-    const state = runs.get(runId);
-    const userContent = state?.userContent || latestRoleText(event.messages, "user");
-    const assistantContent = latestRoleText(event.messages, "assistant");
-    const originIds = state?.recalled?.find((memory) => memory.content === assistantContent)?.originIds ?? [];
+    let state = runs.get(runId);
+    if (!state) {
+      state = { sessionKey: ctx.sessionKey, recalled: [] };
+      rememberRun(runId, state);
+    }
+    if (!state.captureExpiresAt) {
+      state.captureExpiresAt = new Date(
+        Date.now() + (config.evidenceRetentionDays * 24 * 60 * 60 * 1000),
+      ).toISOString();
+    }
+    const expiresAt = state.captureExpiresAt;
     const prefix = `openclaw:${ctx.sessionKey}:${runId}`;
-    const userIndex = Array.isArray(event.messages)
-      ? event.messages.findLastIndex((message) => message?.role === "user")
-      : -1;
-    const turnMessages = Array.isArray(event.messages) ? event.messages.slice(userIndex + 1) : [];
-    const callNames = toolCallNames(turnMessages);
-    let toolIndex = 0;
-    const toolObservations = turnMessages
-      .filter((message) => ["tool", "toolResult"].includes(message?.role))
-      .map((message) => {
-        const content = textContent(message);
-        if (!content) return undefined;
-        toolIndex += 1;
-        const eventId = message.toolCallId ?? message.tool_call_id ?? message.id ?? toolIndex;
-        const toolName = message.name ?? message.toolName ?? message.tool_name ?? callNames.get(String(eventId));
-        if (typeof toolName === "string" && toolName.startsWith("bigfeels_")) return undefined;
-        return {
-          space: config.writeSpace,
-          source: "openclaw",
-          source_event_id: `${prefix}:tool:${eventId}`,
-          session_id: ctx.sessionKey,
-          content,
-          speaker: "tool",
-          captured: true,
-        };
-      })
-      .filter(Boolean);
-    const observations = [
-      {
+    const observations = [];
+
+    if (selectedCaptureRoles.has("user")) {
+      const userContent = state.userContent || latestRoleText(event.messages, "user");
+      observations.push({
         space: config.writeSpace,
         source: "openclaw",
         source_event_id: `${prefix}:user`,
@@ -689,9 +712,42 @@ export function createOpenClawAdapter({
         content: userContent,
         speaker: "user",
         captured: true,
-      },
-      ...toolObservations,
-      {
+        expires_at: expiresAt,
+      });
+    }
+
+    if (selectedCaptureRoles.has("tool")) {
+      const userIndex = Array.isArray(event.messages)
+        ? event.messages.findLastIndex((message) => message?.role === "user")
+        : -1;
+      const turnMessages = Array.isArray(event.messages) ? event.messages.slice(userIndex + 1) : [];
+      const callNames = toolCallNames(turnMessages);
+      let toolIndex = 0;
+      for (const message of turnMessages) {
+        if (!["tool", "toolResult"].includes(message?.role)) continue;
+        const content = textContent(message);
+        if (!content) continue;
+        toolIndex += 1;
+        const eventId = message.toolCallId ?? message.tool_call_id ?? message.id ?? toolIndex;
+        const toolName = message.name ?? message.toolName ?? message.tool_name ?? callNames.get(String(eventId));
+        if (typeof toolName === "string" && toolName.startsWith("bigfeels_")) continue;
+        observations.push({
+          space: config.writeSpace,
+          source: "openclaw",
+          source_event_id: `${prefix}:tool:${eventId}`,
+          session_id: ctx.sessionKey,
+          content,
+          speaker: "tool",
+          captured: true,
+          expires_at: expiresAt,
+        });
+      }
+    }
+
+    if (selectedCaptureRoles.has("assistant")) {
+      const assistantContent = latestRoleText(event.messages, "assistant");
+      const originIds = state.recalled?.find((memory) => memory.content === assistantContent)?.originIds ?? [];
+      observations.push({
         space: config.writeSpace,
         source: "openclaw",
         source_event_id: `${prefix}:assistant`,
@@ -699,10 +755,13 @@ export function createOpenClawAdapter({
         content: assistantContent,
         speaker: "assistant",
         captured: true,
+        expires_at: expiresAt,
         ...(originIds.length ? { origin_ids: originIds } : {}),
-      },
-    ];
+      });
+    }
+
     for (const observation of observations) {
+      observation.queue_extraction = config.autoExtract;
       if (!observation.content) continue;
       if (!sessionIsActive(ctx, captureGeneration)) return;
       try {
@@ -713,9 +772,9 @@ export function createOpenClawAdapter({
         logger.warn?.(`bigfeels capture unavailable: ${error instanceof Error ? error.name : "request error"}`);
       }
     }
-    // Extraction is intentionally detached from the turn hook. A slow host
-    // completion must never hold up the user's next turn.
-    if (sessionIsActive(ctx, captureGeneration)) void processPending(ctx);
+    // Extraction is independently opt-in and detached from the turn hook. A
+    // slow host completion must never hold up the user's next turn.
+    if (extractionEnabled && sessionIsActive(ctx, captureGeneration)) void processPending(ctx);
   }
 
   function sessionEnd(event, ctx) {

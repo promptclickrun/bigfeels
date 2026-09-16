@@ -22,6 +22,9 @@ class LocalClient:
         self.principal = Principal(name, tuple(allowed))
         self.data_dir = Path(data_dir).expanduser() if data_dir else default_data_dir()
         self.store = Store(self.data_dir / 'memory.sqlite')
+        # Raw evidence retention is independent of model extraction opt-in.
+        self.store.maintenance()
+        self._maintenance_at = time.monotonic()
         for space in allowed:
             self.store.create_space(space)
         self.extractor = extractor
@@ -40,6 +43,9 @@ class LocalClient:
     def call(self, operation, payload):
         if self._stop.is_set():
             raise ClientError('Local memory is closed', 503)
+        if time.monotonic() - self._maintenance_at >= 60:
+            self.store.maintenance()
+            self._maintenance_at = time.monotonic()
         try:
             result = self.store.dispatch(self.principal, operation, payload)
         except MemoryError as error:
