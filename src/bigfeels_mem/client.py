@@ -8,7 +8,7 @@ import urllib.request
 
 OPERATIONS = frozenset({
     'observe', 'remember', 'context', 'search', 'inspect', 'correct',
-    'forget', 'status', 'export',
+    'forget_preview', 'forget', 'process', 'status', 'export',
 })
 MAX_RESPONSE_BYTES = 16_000_000
 
@@ -103,6 +103,15 @@ class MemoryClient:
         if not isinstance(result, dict):
             raise ClientError('Service returned an invalid response', 502)
         return result
+
+    def process_pending(self, limit=8):
+        if type(limit) is not int or not 1 <= limit <= 8:
+            raise ValueError('Processing limit must be between 1 and 8')
+        result = self.call('process', {'limit': limit})
+        processed = result.get('processed')
+        if type(processed) is not int or processed < 0:
+            raise ClientError('Service returned an invalid processing result', 502)
+        return processed
 
     @staticmethod
     def _error_message(raw):

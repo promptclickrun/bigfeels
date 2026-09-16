@@ -5,12 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bigfeels-mem"
 version = "0.1.0"
-description = "Local, evidence-based memory across agent runtimes"
+description = "Host-neutral local memory with CLI, MCP, HTTP, and optional agent adapters"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
 dependencies = []
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Database",
+]
 
 [project.scripts]
 bigfeels-mem = "bigfeels_mem.cli:main"

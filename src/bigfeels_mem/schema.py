@@ -28,7 +28,10 @@ CREATE TABLE IF NOT EXISTS jobs (
  evidence_id TEXT PRIMARY KEY REFERENCES evidence(id) ON DELETE CASCADE,
  state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
  lease_until REAL NOT NULL DEFAULT 0, retry_at REAL NOT NULL DEFAULT 0,
- error TEXT, lease_token TEXT);
+ error TEXT, lease_token TEXT,
+ accepted_count INTEGER NOT NULL DEFAULT 0,
+ rejected_count INTEGER NOT NULL DEFAULT 0,
+ rejection_reason TEXT);
 CREATE TABLE IF NOT EXISTS vectors (
  memory_id TEXT REFERENCES memories(id) ON DELETE CASCADE,
  model TEXT NOT NULL, vector TEXT NOT NULL, PRIMARY KEY(memory_id,model));
@@ -47,3 +50,74 @@ CREATE INDEX IF NOT EXISTS evidence_space ON evidence(space);
 CREATE INDEX IF NOT EXISTS memories_space ON memories(space,status);
 CREATE INDEX IF NOT EXISTS supports_evidence ON supports(evidence_id);
 """
+
+
+# Version-1 preview databases predate processing diagnostics. Keep the on-disk
+# version and export envelope stable while applying an additive, idempotent
+# migration. These fields contain counts and controlled reason codes only.
+JOB_DIAGNOSTIC_COLUMNS = {
+    'accepted_count': 'INTEGER NOT NULL DEFAULT 0',
+    'rejected_count': 'INTEGER NOT NULL DEFAULT 0',
+    'rejection_reason': 'TEXT',
+}
+
+REQUIRED_V1_COLUMNS = {
+    'metadata': {'key', 'value'},
+    'spaces': {'name'},
+    'credentials': {'digest', 'name', 'spaces'},
+    'evidence': {
+        'id', 'space', 'identity', 'source', 'source_event_id', 'session_id',
+        'speaker', 'content', 'fingerprint', 'occurred_at', 'recorded_at',
+        'expires_at',
+    },
+    'memories': {
+        'id', 'space', 'content', 'kind', 'basis', 'outcome', 'key', 'status',
+        'revision', 'recorded_at', 'valid_from', 'valid_until',
+    },
+    'supports': {'memory_id', 'evidence_id'},
+    'relations': {'source_id', 'target_id', 'kind'},
+    'tombstones': {'id', 'identity', 'space'},
+    'jobs': {
+        'evidence_id', 'state', 'attempts', 'lease_until', 'retry_at', 'error',
+        'lease_token',
+    },
+    'vectors': {'memory_id', 'model', 'vector'},
+    'memory_fts': {'id', 'content', 'key'},
+}
+REQUIRED_V1_TRIGGERS = {'memory_insert', 'memory_delete', 'memory_update'}
+
+
+def validate_schema(connection):
+    """Reject nonempty databases that are not a complete supported v1 store."""
+    tables = {
+        row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    if not set(REQUIRED_V1_COLUMNS) <= tables:
+        raise ValueError('incomplete schema')
+    version = connection.execute(
+        "SELECT value FROM metadata WHERE key='schema_version'"
+    ).fetchone()
+    if version is None or version[0] != '1':
+        raise ValueError('unsupported schema version')
+    for table, required in REQUIRED_V1_COLUMNS.items():
+        present = {row[1] for row in connection.execute(f'PRAGMA table_info({table})')}
+        if not required <= present:
+            raise ValueError('incomplete schema')
+    triggers = {
+        row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger'"
+        )
+    }
+    if not REQUIRED_V1_TRIGGERS <= triggers:
+        raise ValueError('incomplete schema')
+
+
+def migrate_schema(connection):
+    """Bring a supported version-1 database to the latest additive layout."""
+    validate_schema(connection)
+    present = {row[1] for row in connection.execute('PRAGMA table_info(jobs)')}
+    for name, definition in JOB_DIAGNOSTIC_COLUMNS.items():
+        if name not in present:
+            connection.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')

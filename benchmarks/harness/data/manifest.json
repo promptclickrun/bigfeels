@@ -1,0 +1,9 @@
+{
+  "version": "2026-09-15.1",
+  "seed": 42,
+  "case_count": 8,
+  "checksums": {
+    "continuity_v2.public.jsonl": "30c5f40b08390420fa109bf5c41011d2c0fad922773fd2bfc023f5ea1c9d7d06",
+    "continuity_v2.gold.jsonl": "e4f7f40fb454ad3f684847b0441ea1f80e084e6c37b4a0ffbd0909ce01c37bf0"
+  }
+}

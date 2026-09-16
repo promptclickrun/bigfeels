@@ -115,6 +115,9 @@ const renderedText = node => [node.textContent, ...node.children.map(renderedTex
         })
         found = client.call('search', {'query': 'staging', 'spaces': ['project:alpha'], 'budget': 1600})
         self.assertEqual([item['id'] for item in found['memories']], [saved['id']])
+        preview = client.call('forget_preview', {'id': saved['id']})
+        self.assertEqual(preview['memories'][0]['id'], saved['id'])
+        self.assertEqual(client.process_pending(1), 0)
 
         with self.assertRaises(ClientError) as denied:
             MemoryClient(self.base_url, self.owner_token).call('inspect', {'id': saved['id']})
@@ -303,6 +306,41 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'), {filename: process
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_ui_forget_first_click_previews_collateral_and_submits_exact_token(self):
+        result = self.run_ui_scenario(r'''
+const calls = [];
+let confirmation = '';
+global.window.confirm = prompt => { confirmation = prompt; return true; };
+global.fetch = async (url, options) => {
+  const body = JSON.parse(options.body);
+  calls.push({url, body});
+  if (url.endsWith('/forget_preview')) return response({
+    id: body.id,
+    plan_token: 'exact-plan-token',
+    memories: [memory('selected record'), memory('collateral record')],
+    counts: {memories: 2, evidence: 3}
+  });
+  if (url.endsWith('/forget')) return response({status: 'deleted', memories: 2, evidence: 3});
+  if (url.endsWith('/status')) return response({memories: 0, evidence: 0, spaces: ['owner'], queue: {pending: 0}});
+  if (url.endsWith('/search')) return response({memories: [], tokens: 0});
+  throw new Error(`unexpected URL ${url}`);
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'), {filename: process.argv[1]});
+const card = renderMemory(memory('selected record'));
+const forget = card.children[3].children[2];
+(async () => {
+  await forget.listeners.click();
+  if (!calls[0].url.endsWith('/forget_preview')) throw new Error('first click did not preview');
+  if (!confirmation.includes('collateral record') || !confirmation.includes('3 evidence')) {
+    throw new Error('preview did not show collateral deletion');
+  }
+  if (!calls[1].url.endsWith('/forget') || calls[1].body.plan_token !== 'exact-plan-token') {
+    throw new Error('forget did not preserve the preview token');
+  }
+})().catch(error => { console.error(error.message); process.exitCode = 1; });
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_mcp_stdio_initializes_lists_schemas_and_proxies_tool_calls(self):
         requests = [
             {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
@@ -331,7 +369,10 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'), {filename: process
         tools = responses[1]['result']['tools']
         self.assertEqual(
             {tool['name'] for tool in tools},
-            {f'memory_{name}' for name in ('observe', 'remember', 'context', 'search', 'inspect', 'correct', 'forget', 'status', 'export')},
+            {f'memory_{name}' for name in (
+                'observe', 'remember', 'context', 'search', 'inspect', 'correct',
+                'forget_preview', 'forget', 'process', 'status', 'export',
+            )},
         )
         remember = next(tool for tool in tools if tool['name'] == 'memory_remember')
         self.assertEqual(remember['inputSchema']['required'], ['space', 'content'])

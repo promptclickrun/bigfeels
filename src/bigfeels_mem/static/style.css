@@ -19,10 +19,10 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 82% 0%, rgba(62, 141, 105, .13), transparent 32rem), var(--paper); }
-button, input, textarea { font: inherit; }
+button, input, textarea, select { font: inherit; }
 button { border: 0; border-radius: .8rem; padding: .78rem 1.08rem; background: var(--ink); color: white; cursor: pointer; font-weight: 690; }
 button:hover { opacity: .85; }
-button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid rgba(27, 114, 87, .28); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid rgba(27, 114, 87, .28); outline-offset: 2px; }
 button.quiet { background: transparent; color: var(--ink); border: 1px solid var(--line); }
 button.danger { color: var(--red); }
 code { font-size: .9em; }
@@ -41,13 +41,14 @@ h1 { max-width: 15ch; margin: .55rem 0 1rem; font: 680 clamp(2.6rem, 7vw, 5.1rem
 .connect-card, .search-box { margin-top: 2rem; padding: 1.35rem; border: 1px solid var(--line); border-radius: 1.3rem; background: var(--surface); box-shadow: var(--shadow); backdrop-filter: blur(18px); }
 label { display: block; margin-bottom: .55rem; font-weight: 720; font-size: .92rem; }
 .input-row { display: flex; gap: .65rem; }
-input, textarea { width: 100%; min-width: 0; padding: .84rem .95rem; border: 1px solid var(--line); border-radius: .78rem; background: var(--surface-solid); color: var(--ink); }
+input, textarea, select { width: 100%; min-width: 0; padding: .84rem .95rem; border: 1px solid var(--line); border-radius: .78rem; background: var(--surface-solid); color: var(--ink); }
 .connect-card small, .search-box p, .form-help { display: block; margin: .7rem 0 0; color: var(--muted); font-size: .82rem; }
 
 .workspace { padding-top: 3rem; }
 .workspace-heading, .results-heading, .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .workspace-heading h1 { font-size: clamp(2.5rem, 6vw, 4rem); }
-.status-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; margin: 1.6rem 0; }
+.workspace-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .55rem; }
+.status-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: .8rem; margin: 1.6rem 0; }
 .status-card { min-height: 6.2rem; padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); }
 .status-card strong { display: block; margin-top: .7rem; font: 680 1.35rem/1.1 Georgia, serif; overflow-wrap: anywhere; }
 .status-card.spaces strong { font: 650 .9rem/1.35 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -80,6 +81,7 @@ dialog::backdrop { background: rgba(20, 27, 24, .42); backdrop-filter: blur(5px)
 pre { max-height: 60vh; overflow: auto; padding: 1rem; border-radius: .8rem; background: var(--paper); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .79rem; line-height: 1.55; }
 textarea { resize: vertical; }
 label span { color: var(--muted); font-weight: 450; }
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-top: 1rem; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: .7rem; margin-top: 1.2rem; }
 
 @media (max-width: 700px) {
@@ -88,6 +90,7 @@ label span { color: var(--muted); font-weight: 450; }
   .welcome { margin-top: 2.5rem; }
   .input-row { align-items: stretch; }
   .status-cards { grid-template-columns: repeat(2, 1fr); }
+  .field-grid { grid-template-columns: 1fr; }
   .trace dl { grid-template-columns: repeat(2, 1fr); }
 }
 

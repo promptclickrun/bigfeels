@@ -1,5 +1,7 @@
 # bigfeels design
 
+> Historical design input. This file is non-normative; the current host-neutral interface contract is [../../CONTRACT.md](../../CONTRACT.md).
+
 Implement the approved portable, evidence-based agent memory design. Open-source
 Apache-2.0, on-device service and SQLite storage, optional hosted extraction and
 embedding providers, automatic governed capture. Shared owner memory plus

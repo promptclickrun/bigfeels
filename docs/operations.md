@@ -1,107 +1,62 @@
-# Operating bigfeels
+# Operations
 
-## Storage and trust boundary
+## Local storage and scopes
 
-Native hosts open one shared SQLite database for an OS user. SQLite WAL and per-operation
-transactions coordinate concurrent requests; ingestion is acknowledged only after
-commit. The database is created with mode 0600. Use a private data directory and
-OS disk encryption for at-rest protection; the database is not application-encrypted.
+CLI and direct-local MCP use filesystem authority. Each invocation still creates a principal with explicit allowed spaces; `owner` is the documented default. HTTP uses paired bearer credentials with explicit space grants.
 
-The OS user owns local storage. Native adapters and local MCP require no tokens.
-Configured spaces constrain their reads, writes, and model submissions; they
-cannot sandbox a process that already has access to the database file. Separate
-people should use separate OS accounts or private data directories.
+Scopes constrain reads, writes, ranking, and model submissions. They do not sandbox another process running as the same OS user with direct database access. Separate people or identities should use separate private data directories or OS accounts.
 
-The optional HTTP service binds to loopback and validates browser origins and Host headers.
-Bearer tokens are high-entropy and only SHA-256 digests persist. Every token has
-explicit space grants. A paired agent is trusted to write in those spaces;
-provenance is audit evidence, not cryptographic proof of a host's honesty.
-Use separate OS/process boundaries for untrusted agents.
+## Routine commands
 
-Native integrations call their host's official completion API. Model selection,
-subscription support, authentication, refresh, and fallback policy stay with the
-host. bigfeels neither imports its raw credentials nor stores new model secrets.
-Background extraction consumes the host model's allowance. Native defaults use
-keyword retrieval and do not require an embedding provider.
+```sh
+bigfeels-mem status --space owner
+bigfeels-mem doctor
+bigfeels-mem search "query" --space owner
+bigfeels-mem process --space owner --limit 8
+bigfeels-mem maintenance
+bigfeels-mem export --space owner --output memory-export.json
+```
 
-In optional independent HTTP mode, `config.json` stores model identifiers, endpoint, timeout, key environment-variable
-name, and the remote-transfer choice. Never put key values in config. HTTP proxies
-and provider redirects are disabled to keep credentials on the configured endpoint.
-Model requests have bounded timeouts and response sizes. Model errors are generic;
-upstream bodies and private inputs do not appear in diagnostics.
+All direct lifecycle and diagnostic commands print JSON. `doctor` checks local storage/config without returning memory content. `status` is the source of truth for queue and provider state.
 
-## Queue recovery and degraded operation
+## Queue state
 
-Each captured event has a stable identity and an exact redacted-payload fingerprint.
-An identical retry returns its prior event; a changed payload under the same identity
-is a 409 conflict. Origin references identify mirrored memory and avoid recursive
-ingestion. Agents must preserve event IDs across retries.
+`observe` returns after source evidence and its job commit. Extraction may happen later. Preserve source event IDs across retries.
 
-Workers claim events with transactional 120-second leases. Model work happens
-outside database transactions. Completion checks that the lease and source evidence
-still exist. Deletion or expiry during processing prevents stale results from
-reappearing. Failed extraction is requeued with a 30-second retry delay. Invalid
-candidates do not discard good candidates from the same response.
+Inspect:
 
-Embedding versions are stored with vectors. A changed model produces a separate
-index; retrieval only uses the configured model. Missing vectors use keyword
-retrieval while background indexing catches up. Query embedding failures fall back
-to keyword matches and report `embedding_status: unavailable`.
+- `status.queue` for state-to-count mapping;
+- `status.processing.oldest_pending_at` for backlog age;
+- `status.processing.next_retry_at` for delayed work;
+- safe rejection/failure counters for invalid or failed extraction;
+- `status.providers` for extraction and embedding availability.
 
-The initial vector implementation performs a scoped exact scan of vectors stored
-as JSON in SQLite. FTS ranking uses a temporary permitted corpus to prevent private
-documents influencing ranking statistics. Both favor auditability over large-corpus
-throughput. Measure your corpus before increasing workload; neither ANN scale nor
-a latency SLA is claimed.
+`process --limit N` attempts a bounded local batch. `processed: 0` can mean no extractor, no ready job, a busy worker, or retry delay. Do not report capture as learned memory until status/search/inspect proves the intended result.
 
-## Retention, deletion, and backup
+## Deletion
 
-Set `expires_at` on observations to expire source content at a known time. Sources
-without an expiry remain until forgotten. Maintenance removes expired content,
-marks linked knowledge as lacking available source content, and discards unfinished
-extraction for those sources. It does not silently erase independent derived knowledge.
+Always preview first:
 
-Forget closes over supporting evidence, dependent memories, and correction lineage.
-All affected records are immediately excluded within the transaction. Tombstones
-retain IDs, source identity digests, and space names, never deleted text. Local
-forget calls request a purge immediately; native extraction workers and service periodic
-maintenance rebuilds the text index and VACUUMs/checkpoints the database after a
-deletion or expiry. `bigfeels-mem maintenance` forces that local maintenance pass.
+```sh
+bigfeels-mem forget-preview MEMORY_ID --space owner
+bigfeels-mem forget MEMORY_ID --plan-token PLAN_TOKEN --space owner
+```
 
-Physical purge cannot recall data from an in-flight network request, another process's
-memory, OS snapshots, provider retention, host histories, or previous exports. Manage
-those separately. A replay with the same source identity is blocked; a fresh unrelated
-source manually reintroducing the same fact is not content-censored.
+Review every memory and evidence count in the preview. If the closure changes, the plan token is rejected with 409 and a new preview is required. Logical deletion commits transactionally. Maintenance handles physical FTS/database cleanup. Tombstones retain content-free identities to block replay.
 
-Exports are plaintext and should be stored privately. They preserve evidence,
-knowledge, relationships, tombstones, and processing state, but no credentials or
-derived vector indexes. Restore into a fresh data directory; HTTP credentials must be paired
-again if that optional transport is used. Restore validates relational scope boundaries and rejects a snapshot containing
-both deleted records and their tombstones. Concurrent snapshots are transactionally
-consistent; restored processing leases restart as pending work.
+Deletion cannot recall data already sent to a provider, retained in host histories, copied into exports, present in OS snapshots, or held by another process. Manage those systems separately.
 
-## Evidence and promotion
+## Backup and restore
 
-User statements can become direct memories; tool output can become observations.
-Assistant prose and document text remain inferred unless explicitly saved or corrected.
-Automatic promotion preserves the complete source message up to 16,000 characters
-to avoid turning an extracted substring into a misleading claim. Longer synthesis
-is kept as a candidate. A provider's `verified` label is downgraded automatically;
-the tool evidence itself remains available for inspection. Explicit verified saves
-require observed basis and a tool evidence reference.
+Exports are plaintext and should be stored privately. They preserve v1 evidence, memories, relationships, tombstones, and processing jobs, but not HTTP credentials or derived vector indexes. Restore only into an empty store:
 
-Remembered instructions have no special authority. Native integrations frame recall
-as untrusted contextual evidence. Host approval/sandbox policies still govern actions.
+```sh
+bigfeels-mem --data-dir /private/new-store init
+bigfeels-mem --data-dir /private/new-store restore memory-export.json
+```
 
-## Diagnostics
+## Service operation
 
-Use the native `bigfeels_status` tool for counts and pending work, or
-`bigfeels-mem status` and `bigfeels-mem doctor` locally. A missing service
-`config.json` is normal for native hosts. If extraction fails, check the host's
-normal model/login diagnostics; evidence stays queued. The browser is optional.
-For explicitly configured independent HTTP models, check the named key variable
-in the service environment. Do not paste credentials or private exports into reports.
+`serve` binds to loopback only and starts the optional background processor. It does not install a daemon. Configuration changes require restarting that explicitly managed process. The browser UI is optional and static assets reveal no memory without a scoped credential.
 
-Check [verification](verification.md) before relying on a host integration. Installation
-and model selection are explicit operator actions; this implementation does not alter
-existing agent profiles or register a background OS daemon.
+No command in this guide installs a host plugin, changes a live profile, starts an OS service, or publishes a package.

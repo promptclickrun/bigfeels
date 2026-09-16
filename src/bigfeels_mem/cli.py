@@ -1,4 +1,4 @@
-"""Administrative command line for bigfeels memory."""
+"""Host-neutral command line for bigfeels memory."""
 import argparse
 import json
 import os
@@ -86,14 +86,25 @@ def ensure_config(path):
     return load_config(path)
 
 
+def _provider_availability(provider, capability):
+    if not provider or not getattr(provider, capability):
+        return 'not_configured'
+    hostname = urllib.parse.urlsplit(provider.base_url).hostname
+    if hostname in ('localhost', '127.0.0.1', '::1') or os.environ.get(provider.key_env):
+        return 'configured'
+    return 'credential_missing'
+
+
 def _provider(store, config):
     provider = OpenAIProvider.from_config(config['provider'])
-    store.embedder = provider if provider and provider.can_embed else None
+    extraction = _provider_availability(provider, 'can_extract')
+    embeddings = _provider_availability(provider, 'can_embed')
+    store.embedder = provider if embeddings == 'configured' else None
     store.provider_status = {
-        'extraction': 'configured' if provider and provider.can_extract else 'not_configured',
-        'embeddings': 'configured' if provider and provider.can_embed else 'not_configured',
+        'extraction': extraction,
+        'embeddings': embeddings,
     }
-    return provider
+    return provider if 'configured' in (extraction, embeddings) else None
 
 
 def _token(environment_name):
@@ -111,11 +122,61 @@ def _write(output, payload):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog='bigfeels-mem', description='Private local memory service')
+    parser = argparse.ArgumentParser(
+        prog='bigfeels-mem',
+        description='Portable, private, evidence-based memory',
+    )
     parser.add_argument('--data-dir', help='Local data directory')
     commands = parser.add_subparsers(dest='command', required=True)
 
     commands.add_parser('init', help='Initialize private local storage')
+
+    remember = commands.add_parser('remember', help='Save an explicit memory and print its JSON record')
+    remember.add_argument('content')
+    remember.add_argument('--space', default='owner', help='Memory scope (default: owner)')
+    remember.add_argument('--kind', choices=('fact', 'preference', 'decision', 'episode', 'procedure', 'task'))
+    remember.add_argument('--basis', choices=('direct', 'observed', 'inferred'))
+    remember.add_argument('--evidence-id', action='append', dest='evidence_ids')
+    remember.add_argument('--key')
+    remember.add_argument('--valid-from')
+    remember.add_argument('--valid-until')
+    remember.add_argument('--outcome', choices=('unspecified', 'proposed', 'attempted', 'attested', 'verified', 'failed'))
+
+    for name, help_text in (
+        ('search', 'Search scoped memories and print JSON records plus a recall trace'),
+        ('context', 'Build bounded active memory context for a query'),
+    ):
+        recall = commands.add_parser(name, help=help_text)
+        recall.add_argument('query')
+        recall.add_argument('--space', action='append', dest='spaces', help='Allowed memory scope (default: owner)')
+        recall.add_argument('--budget', type=int, default=800)
+        recall.add_argument('--as-of')
+        if name == 'search':
+            recall.add_argument('--include-inactive', action='store_true')
+
+    inspect = commands.add_parser('inspect', help='Inspect one scoped memory or evidence record')
+    inspect.add_argument('id')
+    inspect.add_argument('--space', action='append', dest='spaces', help='Allowed memory scope (default: owner)')
+
+    correct = commands.add_parser('correct', help='Supersede a memory at its current revision')
+    correct.add_argument('id')
+    correct.add_argument('content')
+    correct.add_argument('--revision', type=int, required=True)
+    correct.add_argument('--valid-from')
+    correct.add_argument('--space', action='append', dest='spaces', help='Allowed memory scope (default: owner)')
+
+    preview = commands.add_parser('forget-preview', help='Preview the complete scoped deletion plan')
+    preview.add_argument('id')
+    preview.add_argument('--space', action='append', dest='spaces', help='Allowed memory scope (default: owner)')
+
+    forget = commands.add_parser('forget', help='Execute a current deletion plan')
+    forget.add_argument('id')
+    forget.add_argument('--plan-token', required=True, help='Token returned by forget-preview')
+    forget.add_argument('--space', action='append', dest='spaces', help='Allowed memory scope (default: owner)')
+
+    process = commands.add_parser('process', help='Process a bounded local extraction batch')
+    process.add_argument('--limit', type=int, default=8)
+    process.add_argument('--space', action='append', dest='spaces', help='Allowed processing scope (default: owner)')
 
     space = commands.add_parser('space', help='Create a memory space')
     space.add_argument('name')
@@ -162,6 +223,28 @@ def build_parser():
     return parser
 
 
+def _payload(arguments, *names):
+    """Build a JSON request without inventing values for omitted options."""
+    return {
+        name: getattr(arguments, name)
+        for name in names
+        if getattr(arguments, name, None) is not None
+    }
+
+
+def _local(data_dir, config_path, spaces, *, processing=False, name='cli'):
+    client = LocalClient(
+        data_dir,
+        spaces=spaces or ['owner'],
+        name=name,
+        auto_process=False,
+    )
+    provider = _provider(client.store, load_config(config_path))
+    if processing and provider and provider.can_extract:
+        client.extractor = provider
+    return client
+
+
 def _doctor(database_path, config_path):
     result = {
         'status': 'ok',
@@ -186,12 +269,10 @@ def _doctor(database_path, config_path):
         result['config'] = 'ok'
         provider = OpenAIProvider.from_config(config['provider'])
         if provider:
-            local = urllib.parse.urlsplit(provider.base_url).hostname in ('localhost', '127.0.0.1', '::1')
             key_present = bool(os.environ.get(provider.key_env))
-            available = local or key_present
             result['providers'] = {
-                'extraction': ('available' if available else 'credential_missing') if provider.can_extract else 'not_configured',
-                'embeddings': ('available' if available else 'credential_missing') if provider.can_embed else 'not_configured',
+                'extraction': _provider_availability(provider, 'can_extract'),
+                'embeddings': _provider_availability(provider, 'can_embed'),
             }
             result['api_key_environment'] = {'name': provider.key_env, 'present': key_present}
     if result['config'] == 'missing':
@@ -212,6 +293,67 @@ def main(argv=None, stdout=None, stderr=None):
             Store(database_path)
             ensure_config(config_path)
             _write(stdout, {'status': 'initialized', 'data_dir': str(data_dir)})
+        elif args.command == 'remember':
+            client = _local(data_dir, config_path, [args.space])
+            try:
+                payload = _payload(
+                    args, 'content', 'space', 'kind', 'basis', 'evidence_ids',
+                    'key', 'valid_from', 'valid_until', 'outcome',
+                )
+                _write(stdout, client.call('remember', payload))
+            finally:
+                client.close()
+        elif args.command in ('search', 'context'):
+            client = _local(data_dir, config_path, args.spaces)
+            try:
+                names = ['query', 'spaces', 'budget', 'as_of']
+                if args.command == 'search':
+                    names.append('include_inactive')
+                payload = _payload(args, *names)
+                payload['spaces'] = args.spaces or ['owner']
+                _write(stdout, client.call(args.command, payload))
+            finally:
+                client.close()
+        elif args.command == 'inspect':
+            client = _local(data_dir, config_path, args.spaces)
+            try:
+                _write(stdout, client.call('inspect', {'id': args.id}))
+            finally:
+                client.close()
+        elif args.command == 'correct':
+            client = _local(data_dir, config_path, args.spaces)
+            try:
+                _write(stdout, client.call(
+                    'correct', _payload(args, 'id', 'revision', 'content', 'valid_from'),
+                ))
+            finally:
+                client.close()
+        elif args.command == 'forget-preview':
+            client = _local(data_dir, config_path, args.spaces)
+            try:
+                result = client.call('forget_preview', {'id': args.id})
+                result.get('memories', []).sort(key=lambda item: item.get('id') != args.id)
+                _write(stdout, result)
+            finally:
+                client.close()
+        elif args.command == 'forget':
+            client = _local(data_dir, config_path, args.spaces)
+            try:
+                _write(stdout, client.call(
+                    'forget', {'id': args.id, 'plan_token': args.plan_token},
+                ))
+            finally:
+                client.close()
+        elif args.command == 'process':
+            client = _local(data_dir, config_path, args.spaces, processing=True)
+            try:
+                processed = client.process_pending(args.limit)
+                _write(stdout, {
+                    'processed': processed,
+                    'status': client.call('status', {}),
+                })
+            finally:
+                client.close()
         elif args.command == 'space':
             result = Store(database_path).create_space(args.name)
             _write(stdout, {'status': 'created', **result})
@@ -255,7 +397,7 @@ def main(argv=None, stdout=None, stderr=None):
         elif args.command == 'doctor':
             _write(stdout, _doctor(database_path, config_path))
         elif args.command == 'status':
-            client = LocalClient(data_dir, spaces=args.spaces or ['owner'])
+            client = _local(data_dir, config_path, args.spaces)
             try:
                 _write(stdout, client.call('status', {}))
             finally:
@@ -285,7 +427,7 @@ def main(argv=None, stdout=None, stderr=None):
             _write(stdout, {'status': 'ok', **Store(database_path).maintenance()})
         elif args.command == 'mcp':
             client = (MemoryClient(args.url, _token(args.token_env)) if args.url else
-                      LocalClient(data_dir, spaces=args.spaces or ['owner'], name='mcp'))
+                      _local(data_dir, config_path, args.spaces, processing=True, name='mcp'))
             try:
                 serve_stdio(client, sys.stdin, stdout)
             finally:

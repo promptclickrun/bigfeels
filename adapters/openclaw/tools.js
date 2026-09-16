@@ -1,6 +1,7 @@
 const SPACE = { type: "string", minLength: 1, maxLength: 200 };
 const CONTENT = { type: "string", minLength: 1, maxLength: 16000 };
 const IDENTIFIER = { type: "string", minLength: 1, maxLength: 500 };
+const PLAN_TOKEN = { type: "string", minLength: 1, maxLength: 2000 };
 const TIMESTAMP = { type: "string", description: "ISO-8601 timestamp with timezone" };
 
 function objectSchema(properties, required = []) {
@@ -52,7 +53,7 @@ const TOOL_SPECS = [
       valid_until: TIMESTAMP,
       outcome: {
         type: "string",
-        enum: ["unspecified", "proposed", "attempted", "verified", "failed"],
+        enum: ["unspecified", "proposed", "attempted", "attested", "verified", "failed"],
       },
     }, ["content"]),
   },
@@ -69,16 +70,23 @@ const TOOL_SPECS = [
     }, ["id", "revision", "content"]),
   },
   {
+    name: "bigfeels_forget_preview",
+    label: "Bigfeels Forget Preview",
+    description: "Preview every scoped memory and evidence item that forgetting an ID would delete. Review the returned content and counts, then pass its plan_token to Bigfeels Forget.",
+    operation: "forget_preview",
+    parameters: objectSchema({ id: IDENTIFIER }, ["id"]),
+  },
+  {
     name: "bigfeels_forget",
     label: "Bigfeels Forget",
-    description: "Delete one scoped item and its derivatives by ID while retaining a content-free replay marker.",
+    description: "Confirm a deletion preview by ID and plan_token. Stale or expired plans are rejected.",
     operation: "forget",
-    parameters: objectSchema({ id: IDENTIFIER }, ["id"]),
+    parameters: objectSchema({ id: IDENTIFIER, plan_token: PLAN_TOKEN }, ["id", "plan_token"]),
   },
   {
     name: "bigfeels_status",
     label: "Bigfeels Status",
-    description: "Read scoped counts, queue status, and provider availability without stored content.",
+    description: "Read scoped counts, queue state, backlog age, retry timing, safe processing failures, and provider availability without stored content or provider error bodies.",
     operation: "status",
     parameters: objectSchema({}),
   },
@@ -124,6 +132,10 @@ function scopedPayload(spec, params, allowedSpaces, writeSpace) {
       payload.space = writeSpace;
     } else if (typeof payload.space !== "string" || !allowedSpaces.includes(payload.space)) {
       return { error: "space" };
+    }
+  } else if (spec.name === "bigfeels_forget") {
+    if (typeof payload.id !== "string" || !payload.id || typeof payload.plan_token !== "string" || !payload.plan_token) {
+      return { error: "invalid" };
     }
   }
   return { payload };

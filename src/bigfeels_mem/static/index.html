@@ -22,7 +22,7 @@
     <section id="welcome" class="welcome" aria-labelledby="welcome-title">
       <div class="eyebrow">Local inspection</div>
       <h1 id="welcome-title">See what your agents remember.</h1>
-      <p>Search memories, follow their evidence, correct the record, and remove what should be forgotten. Your credential stays in this tab’s memory.</p>
+      <p>Save and search memories, follow their evidence, correct the record, and preview everything a deletion will remove. Your credential stays in this tab’s memory.</p>
       <form id="connect-form" class="connect-card">
         <label for="credential">Paired credential</label>
         <div class="input-row">
@@ -39,7 +39,11 @@
           <div class="eyebrow">Inspection workspace</div>
           <h1>Memory, with receipts.</h1>
         </div>
-        <button id="refresh" class="quiet" type="button">Refresh</button>
+        <div class="workspace-actions">
+          <button id="remember" type="button">Add memory</button>
+          <button id="process" class="quiet" type="button">Process pending</button>
+          <button id="refresh" class="quiet" type="button">Refresh</button>
+        </div>
       </div>
 
       <section id="status-cards" class="status-cards" aria-label="Service status"></section>
@@ -98,6 +102,48 @@
       <div class="dialog-actions">
         <button class="quiet" data-close="correct-dialog" type="button">Cancel</button>
         <button type="submit">Save correction</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="remember-dialog">
+    <form id="remember-form">
+      <div class="dialog-heading">
+        <div>
+          <div class="eyebrow">Explicit memory</div>
+          <h2>Save a memory</h2>
+        </div>
+        <button class="icon-button" data-close="remember-dialog" type="button" aria-label="Close memory form">×</button>
+      </div>
+      <label for="remember-space">Space</label>
+      <input id="remember-space" value="owner" required maxlength="200">
+      <label for="remember-content">Content</label>
+      <textarea id="remember-content" rows="7" required maxlength="16000"></textarea>
+      <div class="field-grid">
+        <div>
+          <label for="remember-kind">Kind</label>
+          <select id="remember-kind">
+            <option value="fact">Fact</option>
+            <option value="preference">Preference</option>
+            <option value="decision">Decision</option>
+            <option value="episode">Episode</option>
+            <option value="procedure">Procedure</option>
+            <option value="task">Task</option>
+          </select>
+        </div>
+        <div>
+          <label for="remember-basis">Basis</label>
+          <select id="remember-basis">
+            <option value="direct">Direct</option>
+            <option value="observed">Observed</option>
+            <option value="inferred">Inferred</option>
+          </select>
+        </div>
+      </div>
+      <p class="form-help">This writes immediately. Automatic capture is a separate host capability.</p>
+      <div class="dialog-actions">
+        <button class="quiet" data-close="remember-dialog" type="button">Cancel</button>
+        <button type="submit">Save memory</button>
       </div>
     </form>
   </dialog>
