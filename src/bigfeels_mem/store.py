@@ -651,7 +651,8 @@ class Store:
         bundle['jobs'] = [dict(r) for r in c.execute(
             f"SELECT j.evidence_id,CASE WHEN j.state='failed' THEN 'pending' ELSE j.state END AS state,"
             f'j.attempts FROM jobs j JOIN evidence e ON e.id=j.evidence_id '
-            f'WHERE e.space IN ({marks})', p.spaces)]
+            f'WHERE e.space IN ({marks}) AND e.content IS NOT NULL '
+            'AND (e.expires_at IS NULL OR e.expires_at>?)', (*p.spaces, bundle['exported_at']))]
         return bundle
 
     def restore(self, bundle):
@@ -713,10 +714,14 @@ class Store:
 
     def maintenance(self):
         with self.connection(True) as c:
-            ids = [r[0] for r in c.execute('SELECT id FROM evidence WHERE expires_at<=? AND content IS NOT NULL', (now(),))]
+            at = now()
+            # Masked exports and restored evidence may already have null text.
+            # Such jobs cannot run, even if no payload remains to purge.
+            c.execute('DELETE FROM jobs WHERE evidence_id IN '
+                      '(SELECT id FROM evidence WHERE content IS NULL OR expires_at<=?)', (at,))
+            ids = [r[0] for r in c.execute('SELECT id FROM evidence WHERE expires_at<=? AND content IS NOT NULL', (at,))]
             for eid in ids:
                 c.execute('UPDATE evidence SET content=NULL WHERE id=?', (eid,))
-                c.execute('DELETE FROM jobs WHERE evidence_id=?', (eid,))
             if ids:
                 c.execute("INSERT OR REPLACE INTO metadata VALUES ('needs_purge','1')")
             purge = c.execute("SELECT value FROM metadata WHERE key='needs_purge'").fetchone()

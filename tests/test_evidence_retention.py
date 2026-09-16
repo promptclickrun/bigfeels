@@ -7,6 +7,38 @@ from bigfeels_mem.store import Store, Principal
 
 
 class EvidenceRetentionTests(unittest.TestCase):
+    def test_export_omits_jobs_for_expired_sources(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = Store(Path(td) / 'memory.sqlite')
+            p = Principal('test', ('owner',))
+            store.dispatch(p, 'observe', {'space':'owner', 'source':'test', 'source_event_id':'one',
+                'session_id':'one', 'speaker':'user', 'content':'Temporary source',
+                'expires_at':'2026-01-02T00:00:00Z'})
+            with patch('bigfeels_mem.store.now', return_value='2026-01-03T00:00:00.000000Z'):
+                bundle = store.dispatch(p, 'export', {})
+            self.assertIsNone(bundle['evidence'][0]['content'])
+            self.assertEqual(bundle['jobs'], [])
+
+    def test_restore_maintenance_removes_jobs_for_already_null_evidence(self):
+        for expiry in (None, '2026-01-02T00:00:00Z'):
+            with self.subTest(expiry=expiry), tempfile.TemporaryDirectory() as td:
+                store = Store(Path(td) / 'source.sqlite')
+                p = Principal('test', ('owner',))
+                with patch('bigfeels_mem.store.now', return_value='2026-01-01T00:00:00.000000Z'):
+                    store.dispatch(p, 'observe', {'space':'owner', 'source':'test', 'source_event_id':'one',
+                        'session_id':'one', 'speaker':'user', 'content':'Temporary source', 'expires_at':expiry})
+                    bundle = store.dispatch(p, 'export', {})
+                self.assertEqual(len(bundle['jobs']), 1)
+                # Older masked exports retained the pending job with null text.
+                bundle['evidence'][0]['content'] = None
+                restored = Store(Path(td) / 'restored.sqlite')
+                restored.restore(bundle)
+                with patch('bigfeels_mem.store.now', return_value='2026-01-03T00:00:00.000000Z'):
+                    restored.maintenance()
+                    restored.maintenance()
+                self.assertEqual(restored.dispatch(p, 'status', {})['queue']['pending'], 0)
+                self.assertEqual(restored.dispatch(p, 'export', {})['jobs'], [])
+
     def test_capture_without_extraction_consent_never_enters_worker_queue(self):
         with tempfile.TemporaryDirectory() as td:
             store = Store(Path(td) / 'memory.sqlite')
