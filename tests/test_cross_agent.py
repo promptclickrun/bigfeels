@@ -23,7 +23,8 @@ const input=JSON.parse(process.env.BIGFEELS_E2E);
 const {createOpenClawAdapter}=await import(pathToFileURL(input.adapter));
 const adapter=createOpenClawAdapter({config:{url:input.url,token:input.token,
  ownerSpace:'owner',projectSpaces:['project:app'],writeSpace:'project:app',
- primaryAgentId:'main',budget:3200,timeoutMs:2000,autoCapture:true,autoRecall:true},
+ primaryAgentId:'main',budget:3200,timeoutMs:2000,autoCapture:true,autoRecall:true,
+ captureRoles:['user','assistant','tool'],autoExtract:true},
  fetchImpl:fetch,isSubagentSessionKey:key=>key.includes(':subagent:'),logger:{warn(){}}});
 const ctx={runId:input.run,agentId:'main',sessionKey:'agent:main:main'};
 const recalled=await adapter.beforePromptBuild({prompt:input.query,messages:[]},ctx);
@@ -74,7 +75,8 @@ console.log(JSON.stringify({id:memories.memories[0].id,mode:a.mode}));
             url = f'http://127.0.0.1:{httpd.server_port}'
             provider = BigfeelsMemoryProvider(AdapterConfig(base_url=url, token=hermes_token,
                        owner_space='owner', project_spaces=('project:app',),
-                       write_space='project:app', budget=3200, timeout=2))
+                       write_space='project:app', budget=3200, timeout=2,
+                       capture_roles=('user', 'assistant', 'tool'), auto_extract=True))
             provider.initialize('hermes-one', platform='cli', agent_context='primary')
 
             def node(query, run, capture=False):

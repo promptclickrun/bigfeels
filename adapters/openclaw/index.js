@@ -8,7 +8,7 @@ import { toolDefinitions } from "./tools.js";
 export default definePluginEntry({
   id: "bigfeels-mem",
   name: "bigfeels memory",
-  description: "Native evidence-based recall and governed capture through the bigfeels local core.",
+  description: "Native evidence-based recall, explicit saves, and opt-in capture through the bigfeels local core.",
   kind: "memory",
   register(api) {
     const runtimeComplete = api.runtime?.llm?.complete;

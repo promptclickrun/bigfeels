@@ -10,13 +10,21 @@ import sys
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
 from agent.memory_provider import MemoryProvider
 
-from .client import AdapterConfig, BigfeelsClient, BigfeelsUnavailable
+from .client import (
+    DEFAULT_EVIDENCE_RETENTION_DAYS,
+    AdapterConfig,
+    BigfeelsClient,
+    BigfeelsUnavailable,
+    validate_capture_roles,
+    validate_retention_days,
+)
 from .tools import handle_tool, tool_schemas
 
 
@@ -32,6 +40,7 @@ _EXTRACTION_TIMEOUT = 30
 class _TurnState:
     user_content: str
     recalled: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    expires_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -42,7 +51,9 @@ class NativeConfig:
     owner_space: str = _NATIVE_OWNER_SPACE
     project_spaces: tuple[str, ...] = ()
     write_space: str = _NATIVE_OWNER_SPACE
-    auto_extract: bool = True
+    capture_roles: tuple[str, ...] = ()
+    auto_extract: bool = False
+    evidence_retention_days: int = DEFAULT_EVIDENCE_RETENTION_DAYS
     budget: int = 800
 
     @property
@@ -58,6 +69,13 @@ class NativeConfig:
             raise ValueError("Hermes write space must be an allowed memory space")
         if not isinstance(self.auto_extract, bool):
             raise ValueError("Hermes auto_extract must be boolean")
+        roles = validate_capture_roles(self.capture_roles, "Hermes capture_roles")
+        if roles != self.capture_roles:
+            object.__setattr__(self, "capture_roles", roles)
+        validate_retention_days(
+            self.evidence_retention_days,
+            "Hermes evidence_retention_days",
+        )
         if type(self.budget) is not int or not 1 <= self.budget <= 32000:
             raise ValueError("Hermes memory budget must be between 1 and 32000")
         return self
@@ -81,8 +99,26 @@ def _environment_config() -> AdapterConfig | None:
     try:
         budget = int(os.environ.get("BIGFEELS_MEM_BUDGET", "800"))
         timeout = float(os.environ.get("BIGFEELS_MEM_TIMEOUT", "0.75"))
+        retention_days = int(
+            os.environ.get(
+                "BIGFEELS_MEM_EVIDENCE_RETENTION_DAYS",
+                str(DEFAULT_EVIDENCE_RETENTION_DAYS),
+            )
+        )
     except ValueError as exc:
-        raise ValueError("BIGFEELS_MEM_BUDGET and BIGFEELS_MEM_TIMEOUT must be numeric") from exc
+        raise ValueError(
+            "BIGFEELS_MEM_BUDGET, BIGFEELS_MEM_TIMEOUT, and "
+            "BIGFEELS_MEM_EVIDENCE_RETENTION_DAYS must be numeric"
+        ) from exc
+    auto_extract_value = os.environ.get("BIGFEELS_MEM_AUTO_EXTRACT", "false").strip().lower()
+    if auto_extract_value not in {"true", "false"}:
+        raise ValueError("BIGFEELS_MEM_AUTO_EXTRACT must be true or false")
+    raw_capture_roles = os.environ.get("BIGFEELS_MEM_CAPTURE_ROLES", "").strip()
+    capture_roles = (
+        tuple(role.strip() for role in raw_capture_roles.split(","))
+        if raw_capture_roles
+        else ()
+    )
     return AdapterConfig(
         base_url=values["url"],
         token=values["token"],
@@ -91,6 +127,9 @@ def _environment_config() -> AdapterConfig | None:
         write_space=os.environ.get("BIGFEELS_MEM_WRITE_SPACE", ""),
         budget=budget,
         timeout=timeout,
+        capture_roles=capture_roles,
+        auto_extract=auto_extract_value == "true",
+        evidence_retention_days=retention_days,
     ).validate()
 
 
@@ -128,7 +167,15 @@ def _native_config(values: dict[str, Any] | None = None) -> NativeConfig:
         raise ValueError("Hermes project_spaces must be a list or comma-separated string")
     owner = values.get("owner_space", _NATIVE_OWNER_SPACE)
     write = values.get("write_space", owner)
-    auto_extract = values.get("auto_extract", True)
+    capture_roles = validate_capture_roles(
+        values.get("capture_roles", ()),
+        "Hermes capture_roles",
+    )
+    auto_extract = values.get("auto_extract", False)
+    retention_days = values.get(
+        "evidence_retention_days",
+        DEFAULT_EVIDENCE_RETENTION_DAYS,
+    )
     budget = values.get("budget", 800)
     data_dir = values.get("data_dir")
     if data_dir is not None and not isinstance(data_dir, str):
@@ -138,7 +185,9 @@ def _native_config(values: dict[str, Any] | None = None) -> NativeConfig:
         owner_space=owner,
         project_spaces=projects,
         write_space=write,
+        capture_roles=capture_roles,
         auto_extract=auto_extract,
+        evidence_retention_days=retention_days,
         budget=budget,
     )
     return result.validate()
@@ -326,7 +375,11 @@ class BigfeelsMemoryProvider(MemoryProvider):
                 if isinstance(data_dir, str) and isinstance(hermes_home, str) and hermes_home:
                     data_dir = data_dir.replace("$HERMES_HOME", str(hermes_home or ""))
                     data_dir = data_dir.replace("${HERMES_HOME}", str(hermes_home or ""))
-                extractor = _HostExtractor() if config.auto_extract else None
+                extractor = (
+                    _HostExtractor()
+                    if config.capture_roles and config.auto_extract
+                    else None
+                )
                 self._local = local_cls(
                     data_dir=data_dir,
                     spaces=config.spaces,
@@ -361,6 +414,8 @@ class BigfeelsMemoryProvider(MemoryProvider):
         normalized_message = extract_user_instruction_from_skill_message(message)
         if (
             not self._active
+            or self._config is None
+            or not self._config.capture_roles
             or not normalized_message
             or not normalized_message.strip()
             or turn_number < 1
@@ -376,7 +431,20 @@ class BigfeelsMemoryProvider(MemoryProvider):
         session_id = str(kwargs.get("session_id") or self._session_id)
         key = (session_id, turn_number)
         with self._state_lock:
-            self._pending_turns[key] = _TurnState(normalized_message.strip())
+            prior_state = self._pending_turns.get(key)
+            if prior_state is None:
+                prior_state = next(
+                    (
+                        state
+                        for completed_key, state in self._completed_turns.values()
+                        if completed_key == key
+                    ),
+                    None,
+                )
+            self._pending_turns[key] = _TurnState(
+                normalized_message.strip(),
+                expires_at=prior_state.expires_at if prior_state is not None else None,
+            )
             self._pending_turns.move_to_end(key)
             self._latest_turn_key = key
             while len(self._pending_turns) > _MAX_TURN_STATES:
@@ -452,6 +520,7 @@ class BigfeelsMemoryProvider(MemoryProvider):
             not self._active
             or (self._client is None and self._local is None)
             or self._config is None
+            or not self._config.capture_roles
         ):
             return
         effective_session = session_id or self._session_id
@@ -464,37 +533,54 @@ class BigfeelsMemoryProvider(MemoryProvider):
             return
         turn_key, state = selected
         prefix = f"hermes:{effective_session}:turn-{turn_key[1]}"
-        origins = next(
-            (
-                evidence_ids
-                for content, evidence_ids in state.recalled
-                if content == assistant_content.strip()
-            ),
-            (),
-        )
-        observations = [
-            {
-                "space": self._config.write_space,
-                "source": "hermes",
-                "source_event_id": f"{prefix}:user",
-                "session_id": effective_session,
-                "content": user_content,
-                "speaker": "user",
-                "captured": True,
-            },
-            *self._tool_observations(effective_session, prefix, messages),
-            {
-                "space": self._config.write_space,
-                "source": "hermes",
-                "source_event_id": f"{prefix}:assistant",
-                "session_id": effective_session,
-                "content": assistant_content,
-                "speaker": "assistant",
-                "captured": True,
-                **({"origin_ids": list(origins)} if origins else {}),
-            },
-        ]
+        expires_at = self._capture_expiry(state)
+        observations: list[dict[str, Any]] = []
+        if "user" in self._config.capture_roles:
+            observations.append(
+                {
+                    "space": self._config.write_space,
+                    "source": "hermes",
+                    "source_event_id": f"{prefix}:user",
+                    "session_id": effective_session,
+                    "content": user_content,
+                    "speaker": "user",
+                    "captured": True,
+                    "expires_at": expires_at,
+                }
+            )
+        if "tool" in self._config.capture_roles:
+            observations.extend(
+                self._tool_observations(
+                    effective_session,
+                    prefix,
+                    messages,
+                    expires_at,
+                )
+            )
+        if "assistant" in self._config.capture_roles:
+            origins = next(
+                (
+                    evidence_ids
+                    for content, evidence_ids in state.recalled
+                    if content == assistant_content.strip()
+                ),
+                (),
+            )
+            observations.append(
+                {
+                    "space": self._config.write_space,
+                    "source": "hermes",
+                    "source_event_id": f"{prefix}:assistant",
+                    "session_id": effective_session,
+                    "content": assistant_content,
+                    "speaker": "assistant",
+                    "captured": True,
+                    "expires_at": expires_at,
+                    **({"origin_ids": list(origins)} if origins else {}),
+                }
+            )
         for observation in observations:
+            observation['queue_extraction'] = self._config.auto_extract
             if not observation["content"].strip():
                 continue
             try:
@@ -546,6 +632,7 @@ class BigfeelsMemoryProvider(MemoryProvider):
         session_id: str,
         prefix: str,
         messages: list[dict[str, Any]] | None,
+        expires_at: str,
     ) -> list[dict[str, Any]]:
         if self._config is None or not isinstance(messages, list):
             return []
@@ -587,6 +674,7 @@ class BigfeelsMemoryProvider(MemoryProvider):
                     "content": content,
                     "speaker": "tool",
                     "captured": True,
+                    "expires_at": expires_at,
                 }
             )
         return results
@@ -612,6 +700,21 @@ class BigfeelsMemoryProvider(MemoryProvider):
                 if call_id is not None and isinstance(name, str):
                     names[str(call_id)] = name
         return names
+
+    def _capture_expiry(self, state: _TurnState) -> str:
+        """Return one replay-stable expiry for all evidence in a turn."""
+
+        if self._config is None:
+            raise BigfeelsUnavailable("bigfeels memory is unavailable")
+        with self._state_lock:
+            if state.expires_at is None:
+                expires = datetime.now(timezone.utc) + timedelta(
+                    days=self._config.evidence_retention_days
+                )
+                state.expires_at = expires.isoformat(timespec="microseconds").replace(
+                    "+00:00", "Z"
+                )
+            return state.expires_at
 
     def on_session_switch(
         self,

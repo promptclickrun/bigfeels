@@ -60,6 +60,7 @@ function config(url, overrides = {}) {
     budget: 180,
     timeoutMs: 250,
     autoCapture: true,
+    captureRoles: ["user", "assistant", "tool"],
     autoRecall: true,
     ...overrides,
   };
@@ -374,7 +375,7 @@ test("empty config defaults to native Python child storage without network auth"
 test("native extraction uses the host model callback and inherits its model boundary", async () => {
   const completions = [];
   const adapter = createOpenClawAdapter({
-    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000 },
+    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000, captureRoles: ["user"], autoExtract: true },
     complete: async (request) => {
       completions.push(request);
       return {
@@ -413,7 +414,7 @@ test("native extraction uses the host model callback and inherits its model boun
 test("native extraction does not call the model for background or nonprimary runs", async () => {
   let completions = 0;
   const adapter = createOpenClawAdapter({
-    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000 },
+    config: { dataDir: nativeDataDirectory(), processTimeoutMs: 5000, captureRoles: ["user"], autoExtract: true },
     complete: async () => {
       completions += 1;
       return { text: '{"memories":[]}' };
@@ -437,7 +438,7 @@ test("native model timeout aborts completion, closes stdin, and terminates child
   let child;
   let completionSignal;
   const adapter = createOpenClawAdapter({
-    config: { processTimeoutMs: 25 },
+    config: { processTimeoutMs: 25, captureRoles: ["user"], autoExtract: true },
     spawnImpl: (_command, _args, _options) => {
       child = fakeChild((value, currentChild) => {
         const request = JSON.parse(value);

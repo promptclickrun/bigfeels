@@ -7,7 +7,7 @@ function fixture({ failFirst = false } = {}) {
   const state = { captured: 0, pending: 0, done: 0, calls: 0, retryAt: null };
   const ctx = { agentId: 'main', sessionKey: 'review-session', runId: 'review-run', trigger: 'user' };
   const adapter = createOpenClawAdapter({
-    config: {},
+    config: { captureRoles: ['user', 'assistant', 'tool'], autoExtract: true },
     transport: async (operation) => {
       if (operation === 'context') return { status: 'ok', memories: [] };
       if (operation === 'observe') {
@@ -79,7 +79,7 @@ for (const ending of ['session', 'gateway']) {
     const observations = [];
     const ctx = { agentId: 'main', sessionKey: `ending-${ending}`, runId: `run-${ending}`, trigger: 'user' };
     const adapter = createOpenClawAdapter({
-      config: {},
+      config: { captureRoles: ['user', 'assistant', 'tool'], autoExtract: true },
       transport: async (operation, payload) => {
         if (operation === 'context') return { status: 'ok', memories: [] };
         if (operation === 'observe') {

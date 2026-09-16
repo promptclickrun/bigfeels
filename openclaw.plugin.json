@@ -31,7 +31,10 @@
     "pythonPath": { "label": "Python executable", "advanced": true },
     "url": { "label": "Legacy service URL", "placeholder": "http://127.0.0.1:8765", "advanced": true },
     "token": { "label": "Legacy bearer token", "sensitive": true, "advanced": true },
-    "autoCapture": { "label": "Automatic capture" },
+    "captureRoles": { "label": "Automatically captured roles", "help": "Empty by default. Add only roles whose raw turn evidence is approved for capture." },
+    "evidenceRetentionDays": { "label": "Raw evidence retention (days)", "advanced": true },
+    "autoExtract": { "label": "Automatic extraction", "help": "Separately opt in to host-model processing of approved captured evidence." },
+    "autoCapture": { "label": "Automatic capture master switch", "help": "Compatibility off switch. Enabling it does not select roles; captureRoles remains required.", "advanced": true },
     "autoRecall": { "label": "Automatic recall" }
   },
   "configSchema": {
@@ -50,6 +53,9 @@
       "pythonPath": { "type": "string", "minLength": 1, "default": "python3" },
       "url": { "type": "string", "minLength": 1 },
       "token": { "type": "string", "minLength": 1 },
+      "captureRoles": { "type": "array", "items": { "type": "string", "enum": ["user", "assistant", "tool"] }, "uniqueItems": true, "default": [] },
+      "evidenceRetentionDays": { "type": "integer", "minimum": 1, "maximum": 3650, "default": 7 },
+      "autoExtract": { "type": "boolean", "default": false },
       "autoCapture": { "type": "boolean", "default": true },
       "autoRecall": { "type": "boolean", "default": true }
     }

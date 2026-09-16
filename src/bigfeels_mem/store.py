@@ -217,7 +217,10 @@ class Store:
         if row is None:
             raise MemoryError('Item not found', 404)
         self._scope(principal, row['space'])
-        return dict(row)
+        result = dict(row)
+        if table == 'evidence' and result['expires_at'] and result['expires_at'] <= now():
+            result['content'] = None
+        return result
 
     def dispatch(self, principal, operation, payload):
         if not isinstance(principal, Principal):
@@ -242,6 +245,9 @@ class Store:
             return {'id': None, 'status': 'skipped'}
         if not isinstance(d.get('captured', True), bool):
             raise MemoryError('captured must be boolean')
+        queue_extraction = d.get('queue_extraction', True)
+        if not isinstance(queue_extraction, bool):
+            raise MemoryError('queue_extraction must be boolean')
         source = required(d, 'source', 200)
         event_id = required(d, 'source_event_id', 500)
         identity = digest(json.dumps([space, source, event_id]))
@@ -274,8 +280,9 @@ class Store:
         c.execute('INSERT INTO evidence VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                   (eid, space, identity, source, event_id, session, speaker, content,
                    fingerprint, occurred, now(), expires))
-        c.execute('INSERT INTO jobs(evidence_id) VALUES (?)', (eid,))
-        return {'id': eid, 'status': 'queued'}
+        if queue_extraction:
+            c.execute('INSERT INTO jobs(evidence_id) VALUES (?)', (eid,))
+        return {'id': eid, 'status': 'queued' if queue_extraction else 'stored'}
 
     def _remember(self, c, p, d):
         space = self._scope(p, required(d, 'space', 200))
@@ -356,9 +363,11 @@ class Store:
 
     def _memory(self, c, p, mid):
         m = self._item(c, p, mid, 'memories')
-        es = list(c.execute('SELECT e.id,e.content FROM evidence e JOIN supports s ON s.evidence_id=e.id WHERE s.memory_id=? ORDER BY e.id', (mid,)))
+        es = list(c.execute('SELECT e.id,e.content,e.expires_at FROM evidence e JOIN supports s ON s.evidence_id=e.id WHERE s.memory_id=? ORDER BY e.id', (mid,)))
         m['evidence_ids'] = [e['id'] for e in es]
-        m['source_available'] = bool(es) and all(e['content'] is not None for e in es)
+        at = now()
+        m['source_available'] = bool(es) and all(
+            e['content'] is not None and (e['expires_at'] is None or e['expires_at'] > at) for e in es)
         if m['outcome'] == 'verified':
             m['outcome_trust'] = 'legacy_caller_attested_not_independently_verified'
         return m
@@ -630,6 +639,9 @@ class Store:
         bundle = {'version': 1, 'exported_at': now(), 'spaces': list(p.spaces)}
         for table in ('evidence', 'memories', 'tombstones'):
             bundle[table] = [dict(r) for r in c.execute(f'SELECT * FROM {table} WHERE space IN ({marks})', p.spaces)]
+        for evidence in bundle['evidence']:
+            if evidence['expires_at'] and evidence['expires_at'] <= bundle['exported_at']:
+                evidence['content'] = None
         ids = {m['id'] for m in bundle['memories']}
         bundle['supports'] = [dict(r) for r in c.execute('SELECT * FROM supports') if r['memory_id'] in ids]
         bundle['relations'] = [dict(r) for r in c.execute('SELECT * FROM relations') if r['source_id'] in ids and r['target_id'] in ids]
