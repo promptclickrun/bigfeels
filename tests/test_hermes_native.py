@@ -73,6 +73,7 @@ class HermesNativeTests(unittest.TestCase):
                 "data_dir": self.temp.name,
                 "project_spaces": ["project:app"],
                 "write_space": "project:app",
+                "capture_roles": ["user"],
                 "auto_extract": False,
             }
         )
@@ -96,7 +97,8 @@ class HermesNativeTests(unittest.TestCase):
     def test_native_capture_preserves_hermes_identity_roles_and_echo_lineage(self) -> None:
         plugin = importlib.import_module("adapters.hermes")
         provider = plugin.BigfeelsMemoryProvider(
-            {"data_dir": self.temp.name, "auto_extract": False}
+            {"data_dir": self.temp.name, "auto_extract": False,
+             "capture_roles": ["user", "assistant", "tool"]}
         )
         provider.initialize(
             "session-native",
@@ -195,7 +197,7 @@ class HermesNativeTests(unittest.TestCase):
         agent.__path__ = []  # type: ignore[attr-defined]
         with patch.dict(sys.modules, {"agent": agent, "agent.auxiliary_client": auxiliary}):
             provider = plugin.BigfeelsMemoryProvider(
-                {"data_dir": self.temp.name, "auto_extract": True}
+                {"data_dir": self.temp.name, "auto_extract": True, "capture_roles": ["user"]}
             )
             try:
                 provider.initialize(

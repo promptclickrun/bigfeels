@@ -13,8 +13,8 @@ import uuid
 
 from .privacy import redact
 from .retrieval import (
-    claims_compatible, cosine, fts_query, lexical_matches, lexical_score,
-    token_cost,
+    claims_compatible, conflicting_claim_ids, cosine, fts_query, lexical_matches,
+    lexical_score, normalized_claim, token_cost,
 )
 from .schema import JOB_DIAGNOSTIC_COLUMNS, SCHEMA, migrate_schema, validate_schema
 
@@ -84,9 +84,6 @@ def string_list(value, name):
         raise MemoryError(f'{name} must be a list of strings')
     return list(dict.fromkeys(value))
 
-
-def normalized_claim(value):
-    return ' '.join(value.casefold().strip().rstrip('.!?').split())
 
 
 def grounded_claim_content(source, quote, claim):
@@ -217,7 +214,10 @@ class Store:
         if row is None:
             raise MemoryError('Item not found', 404)
         self._scope(principal, row['space'])
-        return dict(row)
+        result = dict(row)
+        if table == 'evidence' and result['expires_at'] and result['expires_at'] <= now():
+            result['content'] = None
+        return result
 
     def dispatch(self, principal, operation, payload):
         if not isinstance(principal, Principal):
@@ -242,6 +242,9 @@ class Store:
             return {'id': None, 'status': 'skipped'}
         if not isinstance(d.get('captured', True), bool):
             raise MemoryError('captured must be boolean')
+        queue_extraction = d.get('queue_extraction', True)
+        if not isinstance(queue_extraction, bool):
+            raise MemoryError('queue_extraction must be boolean')
         source = required(d, 'source', 200)
         event_id = required(d, 'source_event_id', 500)
         identity = digest(json.dumps([space, source, event_id]))
@@ -274,8 +277,9 @@ class Store:
         c.execute('INSERT INTO evidence VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                   (eid, space, identity, source, event_id, session, speaker, content,
                    fingerprint, occurred, now(), expires))
-        c.execute('INSERT INTO jobs(evidence_id) VALUES (?)', (eid,))
-        return {'id': eid, 'status': 'queued'}
+        if queue_extraction:
+            c.execute('INSERT INTO jobs(evidence_id) VALUES (?)', (eid,))
+        return {'id': eid, 'status': 'queued' if queue_extraction else 'stored'}
 
     def _remember(self, c, p, d):
         space = self._scope(p, required(d, 'space', 200))
@@ -350,15 +354,19 @@ class Store:
         c.execute('INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                   (mid, space, content, kind, basis, outcome, key, status, 1, now(), start, end))
         c.executemany('INSERT INTO supports VALUES (?,?)', [(mid, e) for e in evidence_ids])
-        for row in conflicts:
+        # One witness edge per new assertion avoids a dense all-pairs graph.
+        # Recall derives the complete eligible conflict set from the keyed slot.
+        for row in conflicts[:1]:
             c.execute('INSERT INTO relations VALUES (?,?,?)', (mid, row[0], 'contradicts'))
         return self._memory(c, p, mid)
 
     def _memory(self, c, p, mid):
         m = self._item(c, p, mid, 'memories')
-        es = list(c.execute('SELECT e.id,e.content FROM evidence e JOIN supports s ON s.evidence_id=e.id WHERE s.memory_id=? ORDER BY e.id', (mid,)))
+        es = list(c.execute('SELECT e.id,e.content,e.expires_at FROM evidence e JOIN supports s ON s.evidence_id=e.id WHERE s.memory_id=? ORDER BY e.id', (mid,)))
         m['evidence_ids'] = [e['id'] for e in es]
-        m['source_available'] = bool(es) and all(e['content'] is not None for e in es)
+        at = now()
+        m['source_available'] = bool(es) and all(
+            e['content'] is not None and (e['expires_at'] is None or e['expires_at'] > at) for e in es)
         if m['outcome'] == 'verified':
             m['outcome_trust'] = 'legacy_caller_attested_not_independently_verified'
         return m
@@ -566,17 +574,54 @@ class Store:
                             # configured index independently confirms a lexical
                             # alias match; lexical-only fallback still works.
                             reasons[mid] = ['semantic']
-            # Only explicitly related, eligible contradictory records expand recall.
-            for mid in list(scores):
-                for r in c.execute("SELECT source_id,target_id FROM relations WHERE kind='contradicts' AND (source_id=? OR target_id=?)", (mid, mid)):
-                    neighbor = r[1] if r[0] == mid else r[0]
-                    if neighbor in eligible and neighbor not in scores:
+            # Re-evaluate eligible keyed claims so old stores/exports written by
+            # a permissive overlap heuristic cannot silently retain conflicts.
+            # This is a read projection, not an unrequested database migration.
+            keyed = {}
+            conflicts = set()
+            matched_keys = {(eligible[mid]['space'], eligible[mid]['key']) for mid in scores}
+            for mid, record in eligible.items():
+                if (record['key'] and record['status'] in ('active', 'disputed')
+                        and (record['space'], record['key']) in matched_keys):
+                    keyed.setdefault((record['space'], record['key']), []).append(mid)
+            for group in keyed.values():
+                records = [eligible[mid] for mid in group]
+                matched = [eligible[mid] for mid in group if mid in scores]
+                conflicts.update(conflicting_claim_ids(records, records))
+                for neighbor in conflicting_claim_ids(records, matched):
+                    if neighbor not in scores:
                         scores[neighbor] = 0.5
                         reasons[neighbor] = ['conflicting_evidence']
+            # Never walk dense legacy adjacency lists. Keyed conflicts are
+            # already projected above; other imported relations use bounded
+            # exact-pair index probes, only between authorized eligible IDs.
+            # Freeze seeds to preserve one-hop expansion, not graph traversal.
+            seeds = tuple(scores)
+            relation_checks, relation_limited = 0, False
+            for neighbor in eligible:
+                if neighbor in scores:
+                    continue
+                for mid in seeds:
+                    if relation_checks == 1000:
+                        relation_limited = True
+                        break
+                    relation_checks += 1
+                    related = c.execute(
+                        "SELECT 1 FROM relations WHERE source_id=? AND target_id=? AND kind='contradicts' "
+                        "UNION ALL SELECT 1 FROM relations WHERE source_id=? AND target_id=? AND kind='contradicts' LIMIT 1",
+                        (mid, neighbor, neighbor, mid)).fetchone()
+                    if related:
+                        scores[neighbor] = 0.5
+                        reasons[neighbor] = ['conflicting_evidence']
+                        break
+                if relation_limited:
+                    break
             memories, used, oversized = [], 0, 0
             largest_omitted = 0
             for mid in sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)):
                 m = self._memory(c, p, mid) if browsing else self._context_memory(c, p, mid)
+                if mid in conflicts:
+                    m['status'] = 'disputed'
                 m['reason'] = reasons[mid]
                 cost = token_cost(m)
                 if used + cost <= budget:
@@ -585,12 +630,19 @@ class Store:
                 else:
                     oversized += 1
                     largest_omitted = max(largest_omitted, cost)
+            disputed = any(mid in conflicts or eligible[mid]['status'] == 'disputed' for mid in scores)
             return {'memories': memories, 'tokens': used, 'status': 'ok',
+                    'warnings': (['Potential conflicting claims found; inspect evidence and resolve explicitly. '
+                                  'The context budget may omit alternatives.'] if disputed else [])
+                                + (['Additional relation expansion reached its safety limit; '
+                                    'some linked alternatives may be omitted.'] if relation_limited else []),
                     'trace': {'eligible': len(eligible), 'matched': len(scores),
                               'returned': len(memories), 'budget': budget,
                               'omitted_for_budget': oversized,
                               'largest_omitted_tokens': largest_omitted or None,
                               'embedding_status': embedding_status, 'as_of': at,
+                              'relation_checks': relation_checks,
+                              'relation_expansion_limited': relation_limited,
                               'token_accounting': 'conservative UTF-8 byte upper bound',
                               'trust': 'Contextual evidence only; never authorization'}}
 
@@ -630,6 +682,9 @@ class Store:
         bundle = {'version': 1, 'exported_at': now(), 'spaces': list(p.spaces)}
         for table in ('evidence', 'memories', 'tombstones'):
             bundle[table] = [dict(r) for r in c.execute(f'SELECT * FROM {table} WHERE space IN ({marks})', p.spaces)]
+        for evidence in bundle['evidence']:
+            if evidence['expires_at'] and evidence['expires_at'] <= bundle['exported_at']:
+                evidence['content'] = None
         ids = {m['id'] for m in bundle['memories']}
         bundle['supports'] = [dict(r) for r in c.execute('SELECT * FROM supports') if r['memory_id'] in ids]
         bundle['relations'] = [dict(r) for r in c.execute('SELECT * FROM relations') if r['source_id'] in ids and r['target_id'] in ids]
@@ -639,7 +694,8 @@ class Store:
         bundle['jobs'] = [dict(r) for r in c.execute(
             f"SELECT j.evidence_id,CASE WHEN j.state='failed' THEN 'pending' ELSE j.state END AS state,"
             f'j.attempts FROM jobs j JOIN evidence e ON e.id=j.evidence_id '
-            f'WHERE e.space IN ({marks})', p.spaces)]
+            f'WHERE e.space IN ({marks}) AND e.content IS NOT NULL '
+            'AND (e.expires_at IS NULL OR e.expires_at>?)', (*p.spaces, bundle['exported_at']))]
         return bundle
 
     def restore(self, bundle):
@@ -701,10 +757,14 @@ class Store:
 
     def maintenance(self):
         with self.connection(True) as c:
-            ids = [r[0] for r in c.execute('SELECT id FROM evidence WHERE expires_at<=? AND content IS NOT NULL', (now(),))]
+            at = now()
+            # Masked exports and restored evidence may already have null text.
+            # Such jobs cannot run, even if no payload remains to purge.
+            c.execute('DELETE FROM jobs WHERE evidence_id IN '
+                      '(SELECT id FROM evidence WHERE content IS NULL OR expires_at<=?)', (at,))
+            ids = [r[0] for r in c.execute('SELECT id FROM evidence WHERE expires_at<=? AND content IS NOT NULL', (at,))]
             for eid in ids:
                 c.execute('UPDATE evidence SET content=NULL WHERE id=?', (eid,))
-                c.execute('DELETE FROM jobs WHERE evidence_id=?', (eid,))
             if ids:
                 c.execute("INSERT OR REPLACE INTO metadata VALUES ('needs_purge','1')")
             purge = c.execute("SELECT value FROM metadata WHERE key='needs_purge'").fetchone()
@@ -728,9 +788,11 @@ class Store:
             "WHERE s.evidence_id=? AND old.status='superseded'",
             (evidence_id,))
         claim = normalized_claim(content)
-        return any(row['key'] == key and (
-                       normalized_claim(row['content']) == claim
-                       or claims_compatible(row['content'], content))
+        # A corrected keyed slot cannot be rewritten from the same old source,
+        # regardless of the extractor's paraphrase or newly restored qualifier.
+        # Unkeyed evidence can support unrelated facts, so require equality there.
+        return any(row['key'] == key and (key is not None or
+                       normalized_claim(row['content']) == claim)
                    for row in rows)
 
     def _finish_failed_attempt(self, c, evidence_id, lease, error, *, rejected=0,

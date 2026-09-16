@@ -142,6 +142,7 @@ class HermesAdapterTests(unittest.TestCase):
             "write_space": "project:bigfeels",
             "budget": 240,
             "timeout": 0.25,
+            "capture_roles": ("user", "assistant", "tool"),
         }
         values.update(overrides)
         provider = BigfeelsMemoryProvider(AdapterConfig(**values))
