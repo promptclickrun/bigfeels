@@ -1,5 +1,7 @@
 # Native, agent-installed bigfeels
 
+> Historical implementation note. This plan records the native-adapter phase and is not current installation or product guidance. The host-neutral engine and interfaces in [../../../README.md](../../../README.md) and [../../../INSTALL.md](../../../INSTALL.md) are authoritative.
+
 User correction: installation should be agent-driven from a repository link;
 no required browser/pairing or separate model-provider setup. Inherit supported
 host subscriptions and credential management through official runtime calls.

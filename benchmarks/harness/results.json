@@ -1,0 +1,966 @@
+{
+  "benchmark": "Continuity_V2_Trust_Benchmark",
+  "corpus_version": "2026-09-15.1",
+  "corpus_sha256": "30c5f40b08390420fa109bf5c41011d2c0fad922773fd2bfc023f5ea1c9d7d06",
+  "timestamp": "2026-09-15T23:54:46.841983+00:00",
+  "environment": {
+    "os": "Darwin 25.4.0",
+    "python_version": "3.14.6",
+    "arch": "arm64"
+  },
+  "budget_bytes": 3200,
+  "budget_unit": "conservative_utf8_bytes",
+  "systems": {
+    "no_memory": {
+      "system_name": "no_memory",
+      "version": "1.0.0",
+      "capabilities": {
+        "store": false,
+        "retrieve": false,
+        "evidence": false,
+        "time": false,
+        "correct": false,
+        "forget": false,
+        "scope": false,
+        "extract": false,
+        "restart": false,
+        "queue": false,
+        "cost": false
+      },
+      "total_cases": 8,
+      "executed_cases": 0,
+      "unsupported_cases": 8,
+      "error_cases": 0,
+      "mean_retrieval_recall": 0.0,
+      "mean_retrieval_precision": 0.0,
+      "stale_exposure_rate": 0.0,
+      "leakage_rate": 0.0,
+      "total_forbidden_exposures": 0,
+      "abstention_accuracy": 0.0,
+      "trust_gate_passed": null,
+      "trust_adjusted_score": 0.0,
+      "mean_latency_ms": 0.0,
+      "p95_latency_ms": 0.0,
+      "total_provider_calls": 0,
+      "case_scores": [
+        {
+          "case_id": "hc-01-exact-recall",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "retrieve",
+              "store"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-02-paraphrase-recall",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "retrieve",
+              "store"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-07-delayed-correction",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "retrieve",
+              "correct",
+              "store",
+              "time"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-08-historical-before-correction",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "retrieve",
+              "correct",
+              "store",
+              "time"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-13-scope-denial",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "retrieve",
+              "store",
+              "scope"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-15-delete-and-query",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "retrieve",
+              "forget",
+              "store"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-19-unsupported-completion",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "retrieve",
+              "evidence",
+              "store"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-28-true-abstention",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "retrieve",
+              "store"
+            ]
+          }
+        }
+      ]
+    },
+    "curated_notes": {
+      "system_name": "curated_notes",
+      "version": "1.0.0",
+      "capabilities": {
+        "store": true,
+        "retrieve": true,
+        "evidence": false,
+        "time": false,
+        "correct": false,
+        "forget": false,
+        "scope": false,
+        "extract": false,
+        "restart": true,
+        "queue": false,
+        "cost": false
+      },
+      "total_cases": 8,
+      "executed_cases": 3,
+      "unsupported_cases": 5,
+      "error_cases": 0,
+      "mean_retrieval_recall": 0.6667,
+      "mean_retrieval_precision": 0.6667,
+      "stale_exposure_rate": 0.0,
+      "leakage_rate": 0.0,
+      "total_forbidden_exposures": 0,
+      "abstention_accuracy": 0.0,
+      "trust_gate_passed": true,
+      "trust_adjusted_score": 0.6,
+      "mean_latency_ms": 0.0,
+      "p95_latency_ms": 0.0,
+      "total_provider_calls": 0,
+      "case_scores": [
+        {
+          "case_id": "hc-01-exact-recall",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 149,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-02-paraphrase-recall",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 116,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-07-delayed-correction",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "correct",
+              "time"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-08-historical-before-correction",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "correct",
+              "time"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-13-scope-denial",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "scope"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-15-delete-and-query",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "forget"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-19-unsupported-completion",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "evidence"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-28-true-abstention",
+          "status": "ok",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 244,
+          "details": {
+            "retrieved_count": 2,
+            "expected_count": 0,
+            "bad_count": 0
+          }
+        }
+      ]
+    },
+    "simple_lexical": {
+      "system_name": "simple_lexical",
+      "version": "1.0.0",
+      "capabilities": {
+        "store": true,
+        "retrieve": true,
+        "evidence": false,
+        "time": false,
+        "correct": false,
+        "forget": false,
+        "scope": false,
+        "extract": false,
+        "restart": true,
+        "queue": false,
+        "cost": false
+      },
+      "total_cases": 8,
+      "executed_cases": 3,
+      "unsupported_cases": 5,
+      "error_cases": 0,
+      "mean_retrieval_recall": 0.6667,
+      "mean_retrieval_precision": 0.6667,
+      "stale_exposure_rate": 0.0,
+      "leakage_rate": 0.0,
+      "total_forbidden_exposures": 0,
+      "abstention_accuracy": 0.0,
+      "trust_gate_passed": true,
+      "trust_adjusted_score": 0.6,
+      "mean_latency_ms": 0.02,
+      "p95_latency_ms": 0.04,
+      "total_provider_calls": 0,
+      "case_scores": [
+        {
+          "case_id": "hc-01-exact-recall",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.04,
+          "tokens_used": 149,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-02-paraphrase-recall",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.01,
+          "tokens_used": 116,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-07-delayed-correction",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "correct",
+              "time"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-08-historical-before-correction",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "correct",
+              "time"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-13-scope-denial",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "scope"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-15-delete-and-query",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "forget"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-19-unsupported-completion",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "evidence"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-28-true-abstention",
+          "status": "ok",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.01,
+          "tokens_used": 128,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 0,
+            "bad_count": 0
+          }
+        }
+      ]
+    },
+    "bigfeels": {
+      "system_name": "bigfeels",
+      "version": "0.1.0",
+      "capabilities": {
+        "store": true,
+        "retrieve": true,
+        "evidence": true,
+        "time": true,
+        "correct": true,
+        "forget": true,
+        "scope": true,
+        "extract": true,
+        "restart": true,
+        "queue": true,
+        "cost": true
+      },
+      "total_cases": 8,
+      "executed_cases": 8,
+      "unsupported_cases": 0,
+      "error_cases": 0,
+      "mean_retrieval_recall": 1.0,
+      "mean_retrieval_precision": 1.0,
+      "stale_exposure_rate": 0.0,
+      "leakage_rate": 0.0,
+      "total_forbidden_exposures": 0,
+      "abstention_accuracy": 1.0,
+      "trust_gate_passed": true,
+      "trust_adjusted_score": 1.0,
+      "mean_latency_ms": 1.47,
+      "p95_latency_ms": 1.94,
+      "total_provider_calls": 0,
+      "case_scores": [
+        {
+          "case_id": "hc-01-exact-recall",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 1.57,
+          "tokens_used": 456,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-02-paraphrase-recall",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 1.94,
+          "tokens_used": 421,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-07-delayed-correction",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 1.71,
+          "tokens_used": 443,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-08-historical-before-correction",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 1.55,
+          "tokens_used": 473,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-13-scope-denial",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 1.36,
+          "tokens_used": 415,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-15-delete-and-query",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": true,
+          "false_abstention": false,
+          "latency_ms": 1.09,
+          "tokens_used": 0,
+          "details": {
+            "retrieved_count": 0,
+            "expected_count": 0,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-19-unsupported-completion",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": true,
+          "false_abstention": false,
+          "latency_ms": 1.06,
+          "tokens_used": 0,
+          "details": {
+            "retrieved_count": 0,
+            "expected_count": 0,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-28-true-abstention",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": true,
+          "false_abstention": false,
+          "latency_ms": 1.48,
+          "tokens_used": 0,
+          "details": {
+            "retrieved_count": 0,
+            "expected_count": 0,
+            "bad_count": 0
+          }
+        }
+      ]
+    },
+    "mnemosyne": {
+      "system_name": "mnemosyne",
+      "version": "3.15.1",
+      "capabilities": {
+        "store": true,
+        "retrieve": true,
+        "evidence": false,
+        "time": false,
+        "correct": true,
+        "forget": true,
+        "scope": false,
+        "extract": false,
+        "restart": true,
+        "queue": false,
+        "cost": false
+      },
+      "total_cases": 8,
+      "executed_cases": 4,
+      "unsupported_cases": 4,
+      "error_cases": 0,
+      "mean_retrieval_recall": 0.75,
+      "mean_retrieval_precision": 0.75,
+      "stale_exposure_rate": 0.0,
+      "leakage_rate": 0.0,
+      "total_forbidden_exposures": 0,
+      "abstention_accuracy": 0.6667,
+      "trust_gate_passed": true,
+      "trust_adjusted_score": 0.7833,
+      "mean_latency_ms": 20.37,
+      "p95_latency_ms": 32.06,
+      "total_provider_calls": 0,
+      "case_scores": [
+        {
+          "case_id": "hc-01-exact-recall",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 10.72,
+          "tokens_used": 149,
+          "details": {
+            "retrieved_count": 1,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-02-paraphrase-recall",
+          "status": "ok",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": true,
+          "latency_ms": 32.02,
+          "tokens_used": 0,
+          "details": {
+            "retrieved_count": 0,
+            "expected_count": 1,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-07-delayed-correction",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "time"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-08-historical-before-correction",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "time"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-13-scope-denial",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "scope"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-15-delete-and-query",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": true,
+          "false_abstention": false,
+          "latency_ms": 32.06,
+          "tokens_used": 0,
+          "details": {
+            "retrieved_count": 0,
+            "expected_count": 0,
+            "bad_count": 0
+          }
+        },
+        {
+          "case_id": "hc-19-unsupported-completion",
+          "status": "unsupported",
+          "recall": 0.0,
+          "precision": 0.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": false,
+          "false_abstention": false,
+          "latency_ms": 0.0,
+          "tokens_used": 0,
+          "details": {
+            "missing_capabilities": [
+              "evidence"
+            ]
+          }
+        },
+        {
+          "case_id": "hc-28-true-abstention",
+          "status": "ok",
+          "recall": 1.0,
+          "precision": 1.0,
+          "stale_exposure": false,
+          "leakage": false,
+          "forbidden_exposures": 0,
+          "correct_abstention": true,
+          "false_abstention": false,
+          "latency_ms": 6.67,
+          "tokens_used": 0,
+          "details": {
+            "retrieved_count": 0,
+            "expected_count": 0,
+            "bad_count": 0
+          }
+        }
+      ]
+    }
+  },
+  "cases_metadata": [
+    {
+      "case_id": "hc-01-exact-recall",
+      "family": "exact_recall",
+      "difficulty": "smoke"
+    },
+    {
+      "case_id": "hc-02-paraphrase-recall",
+      "family": "paraphrase_recall",
+      "difficulty": "standard"
+    },
+    {
+      "case_id": "hc-07-delayed-correction",
+      "family": "temporal_correction",
+      "difficulty": "standard"
+    },
+    {
+      "case_id": "hc-08-historical-before-correction",
+      "family": "temporal_historical",
+      "difficulty": "standard"
+    },
+    {
+      "case_id": "hc-13-scope-denial",
+      "family": "scope_leakage",
+      "difficulty": "adversarial"
+    },
+    {
+      "case_id": "hc-15-delete-and-query",
+      "family": "deletion_tombstone",
+      "difficulty": "standard"
+    },
+    {
+      "case_id": "hc-19-unsupported-completion",
+      "family": "epistemic_guard",
+      "difficulty": "standard"
+    },
+    {
+      "case_id": "hc-28-true-abstention",
+      "family": "abstention",
+      "difficulty": "smoke"
+    }
+  ]
+}

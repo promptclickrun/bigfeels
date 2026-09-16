@@ -1,90 +1,89 @@
 # bigfeels
 
-**Memory that travels with your agents, and shows its work.**
+Portable, private memory for tools and agents.
 
-Give your agent this repository link and say:
+bigfeels is a host-neutral Python engine with four first-class interfaces:
 
-> Install bigfeels as my memory provider. Use my agent’s existing model login.
+- `bigfeels-mem` for direct, JSON-producing local commands
+- MCP over stdio for generic clients
+- an authenticated loopback HTTP API
+- a local browser workspace for save, search, inspection, correction, processing status, and deletion preview
 
-bigfeels stores memory on your device. Native Hermes and OpenClaw integrations
-handle capture, recall, and background learning. Your agent manages its model
-credentials; bigfeels does not need a second login, API key, endpoint, browser,
-pairing code, or manually started server.
+Hermes and OpenClaw integrations are optional lifecycle adapters. The engine, CLI, MCP server, HTTP API, and UI do not require either host.
 
-## For the installing agent
+## Install from this checkout
 
-Follow [INSTALL.md](INSTALL.md). The repository root is an installable native
-plugin for both Hermes and OpenClaw. Use the host’s own plugin installer and
-configuration commands. Preserve unrelated settings and existing memory.
-
-For Hermes, using the actual repository URL the user supplied:
+Python 3.11+ with SQLite FTS5 is required. The Python runtime has no mandatory third-party dependencies.
 
 ```sh
-hermes plugins install REPO_URL --enable
-hermes memory setup bigfeels
-hermes memory status
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install /absolute/path/to/bigfeels-mem
+bigfeels-mem --help
 ```
 
-That selects the provider. Start a new Hermes session for it to load. bigfeels
-uses Hermes’s supported auxiliary model routing, including subscription logins
-that Hermes supports. Provider selection, token refresh, and credential storage
-remain with Hermes. No model credentials are copied into bigfeels.
+The package has not been published to a registry. See [INSTALL.md](INSTALL.md) for isolated install options and optional adapters.
 
-For OpenClaw, the installing agent installs this repository through the native
-plugin installer, selects the memory slot, and enables its conversation hooks.
-The plugin uses OpenClaw’s model-completion runtime and starts its local storage
-helper automatically. See [OpenClaw setup](adapters/openclaw/README.md).
+## Explicit lifecycle from the CLI
 
-## Defaults
-
-- Local SQLite storage, shared owner memory, and automatic native-host capture.
-- Background extraction through the host’s configured model and auth policy.
-- Keyword retrieval, with corrections, historical validity, and evidence links.
-- No required configuration fields. Projects are linked only when explicitly set.
-
-Background extraction uses your existing model’s allowance and follows the host’s
-provider policies. Subscription chat access does not imply access to an embedding
-API; semantic embeddings are optional. If host model access is unavailable,
-captured events stay queued and explicit memory tools continue to work.
-
-Optional Hermes settings belong in the usual `config.yaml` under
-`plugins.bigfeels`; see the [Hermes adapter](adapters/hermes/README.md). Hosts using
-the same local data directory share owner memory. Use different data directories
-for separate people or identities. Explicit project spaces control which project
-knowledge an integration recalls and submits for extraction.
-
-## Other agents
-
-Install the Python package from this checkout, then configure the host’s MCP
-command as `bigfeels-mem`, with arguments `["mcp"]`. It opens local storage
-directly. No bearer token or HTTP server is needed. The host can search, remember,
-inspect, correct, and forget through its own model and MCP tools. Automatic
-conversation capture requires a native lifecycle integration.
-
-Python 3.11+ with SQLite FTS5 is required; the Python runtime has no mandatory
-third-party dependencies. OpenClaw additionally requires its supported Node runtime.
-
-## Your memory stays inspectable
-
-Ask your agent to inspect a memory, correct it, or forget it. Memories keep their
-source evidence and history; inferred claims do not automatically become facts.
-Forgetting deletes the supporting lineage and prevents replay of those source
-identities. The browser inspection UI is optional.
+Every command prints one JSON object. Direct commands use the local store and an explicit space, with `owner` as the documented default.
 
 ```sh
-bigfeels-mem status
-bigfeels-mem doctor
-bigfeels-mem export --output memory-export.json
+bigfeels-mem remember "Use SQLite for the portable build." --space project:portable --kind decision
+bigfeels-mem search "portable database" --space project:portable --budget 1600
+bigfeels-mem context "What database did we choose?" --space project:portable
+bigfeels-mem inspect MEMORY_ID --space project:portable
+bigfeels-mem correct MEMORY_ID "Use SQLite with WAL." --revision REVISION --space project:portable
+bigfeels-mem forget-preview MEMORY_ID --space project:portable
+bigfeels-mem forget MEMORY_ID --plan-token PLAN_TOKEN --space project:portable
+bigfeels-mem status --space project:portable
+bigfeels-mem process --space project:portable --limit 8
 ```
 
-The CLI commands above use local filesystem access. Linked projects can be
-included with repeated `--space` arguments on `status`, `export`, or `mcp`.
-The local database and host plugins run as your OS user; scopes are not an OS
-sandbox against another process with the same filesystem access.
+Deletion is deliberately two-step. `forget-preview` returns every affected memory, evidence counts, and a five-minute plan token. `forget` requires that token and rejects stale, expired, or changed plans.
 
-[Design and tradeoffs](docs/design.md) · [Operations](docs/operations.md) ·
-[Advanced HTTP and model setup](docs/advanced.md) ·
-[Compatibility](docs/compatibility.md) · [Verification](docs/verification.md)
+`remember` is synchronous. `process` handles queued observations only when an extraction provider is configured for the standalone engine. Its JSON response includes the processed count and current status. A zero count is not a claim that queued evidence became memory.
 
-The product is **bigfeels**; the package and command are **`bigfeels-mem`**.
-This is an Apache-2.0 local preview. It has not been published to a package registry.
+## MCP for any compatible client
+
+Configure the MCP command as `bigfeels-mem` with arguments `mcp`. Use the executable's absolute path when the client has a different PATH. Add repeated `--space` arguments to constrain local access.
+
+```json
+{
+  "command": "/absolute/path/to/bigfeels-mem",
+  "args": ["--data-dir", "/private/path/bigfeels", "mcp", "--space", "owner"]
+}
+```
+
+MCP exposes explicit remember, context, search, inspect, correct, deletion preview, token-confirmed deletion, status, export, observe, and bounded process tools in direct-local and authenticated loopback HTTP modes. Explicit saves and recall work without a model provider. `memory_observe` only queues source evidence. MCP cannot see an arbitrary host's conversation lifecycle, so it does not promise universal automatic capture. `memory_process` needs a configured extractor; inspect `memory_status` for pending, failed, retry, and provider state. See [docs/advanced.md](docs/advanced.md).
+
+## HTTP API and browser workspace
+
+The standalone service is optional. It binds only to loopback and requires a scoped bearer credential.
+
+```sh
+bigfeels-mem init
+bigfeels-mem pair inspector --space owner
+bigfeels-mem serve
+```
+
+Open `http://127.0.0.1:8765`, enter the paired credential, and use the local workspace. The credential stays in page memory. The HTTP API is `POST /v1/{operation}` with JSON bodies. It supports the same explicit lifecycle, including `forget_preview`, token-confirmed `forget`, `status`, and bounded `process` while the service worker is running.
+
+See [docs/CONTRACT.md](docs/CONTRACT.md) and [docs/advanced.md](docs/advanced.md).
+
+## Optional native adapters
+
+- [Hermes adapter](adapters/hermes/README.md): native capture, recall, and host-owned extraction through the Hermes memory-provider lifecycle.
+- [OpenClaw adapter](adapters/openclaw/README.md): native hooks, tools, and host-owned extraction through OpenClaw.
+
+Adapters can provide automatic capture because they participate in a host's lifecycle. They remain adapters, not prerequisites for the core product. If host model access is unavailable, observations stay queued and explicit memory operations continue to work.
+
+## Data and trust boundary
+
+Storage is local SQLite. Memories retain source evidence, validity, revision history, and uncertainty. Retrieval is scoped before ranking. Remembered text is contextual evidence, never authorization.
+
+Local scopes constrain integrations and model submissions, but they are not an OS sandbox against another process that can read the same database. Use separate private data directories or OS accounts for separate people. Exports are plaintext.
+
+[Design](docs/design.md) · [Operations](docs/operations.md) · [Compatibility](docs/compatibility.md) · [Verification](docs/verification.md)
+
+The product is **bigfeels**; the Python package and command are **`bigfeels-mem`**. Apache-2.0 local preview.

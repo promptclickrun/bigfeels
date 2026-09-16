@@ -114,7 +114,11 @@ console.log(JSON.stringify({id:memories.memories[0].id,mode:a.mode}));
             self.assertIn('The release needs a changelog.', provider.prefetch('release changelog', session_id='hermes-one'))
             private = MemoryClient(url, store.pair('unlinked-agent', ['owner']))
             self.assertEqual(private.call('context', {'query': 'database changelog'})['memories'], [])
-            client.call('forget', {'id': corrected['id']})
+            deletion = client.call('forget_preview', {'id': corrected['id']})
+            client.call('forget', {
+                'id': corrected['id'],
+                'plan_token': deletion['plan_token'],
+            })
             self.assertNotIn('SQLite', node('database', 'after-delete'))
             self.assertNotIn('PostgreSQL', node('database', 'after-delete-two'))
             provider.shutdown()

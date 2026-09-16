@@ -1,12 +1,68 @@
-# Agent installation guide
+# Install bigfeels
 
-Install into the host the user asked to configure. Normal setup uses the host's
-existing model access. Do not ask the user for an API endpoint, API key, local
-pairing code, or browser login to bigfeels.
+Choose an interface first. The Python engine is the product; host plugins are optional adapters.
 
-## Hermes
+## Requirements
 
-Use the supplied repository URL with Hermes's official installer:
+- Python 3.11 or newer
+- SQLite with FTS5
+- a private writable data directory
+- Node only when using the optional OpenClaw adapter or running its tests
+
+The Python core has no mandatory runtime dependencies. This preview is installed from a checkout, not a package registry.
+
+## CLI, MCP, HTTP, and UI
+
+Use an isolated environment:
+
+```sh
+python3 -m venv ~/.local/share/bigfeels/venv
+~/.local/share/bigfeels/venv/bin/python -m pip install /absolute/path/to/bigfeels-mem
+~/.local/share/bigfeels/venv/bin/bigfeels-mem --help
+```
+
+Initialize a chosen data directory and smoke-test an explicit save:
+
+```sh
+BIGFEELS=~/.local/share/bigfeels/venv/bin/bigfeels-mem
+$BIGFEELS --data-dir ~/.local/share/bigfeels/data init
+$BIGFEELS --data-dir ~/.local/share/bigfeels/data remember "Installation smoke test." --space owner
+$BIGFEELS --data-dir ~/.local/share/bigfeels/data search "smoke test" --space owner
+```
+
+Use that executable as the MCP command with arguments:
+
+```text
+--data-dir /absolute/private/data/path mcp --space owner
+```
+
+No bearer token or HTTP server is needed for direct CLI or local MCP. The client decides which explicit memories to save. MCP alone cannot automatically observe a host's conversation lifecycle.
+
+For HTTP and the browser workspace, pair a credential scoped to the spaces it needs, then run the service:
+
+```sh
+$BIGFEELS --data-dir ~/.local/share/bigfeels/data pair inspector --space owner
+$BIGFEELS --data-dir ~/.local/share/bigfeels/data serve
+```
+
+Open `http://127.0.0.1:8765`. Keep the returned credential private. The service does not create an online account.
+
+## Optional extraction provider
+
+Explicit remember/search/context/inspect/correct/forget operations do not need a model. `observe` queues evidence for extraction. To process queued observations in standalone mode, configure an OpenAI-compatible provider:
+
+```sh
+$BIGFEELS --data-dir ~/.local/share/bigfeels/data configure \
+  --base-url http://127.0.0.1:11434/v1 \
+  --extraction-model MODEL_NAME
+$BIGFEELS --data-dir ~/.local/share/bigfeels/data process --space owner --limit 8
+```
+
+For a remote endpoint, set the named key environment variable and explicitly add `--allow-remote`. Only the environment variable name is stored. Check `status` after processing. `processed: 0` with pending work means no job was ready, the extractor is absent/busy, or work is delayed; it is not successful learning.
+
+## Optional Hermes adapter
+
+The root `plugin.yaml` and `__init__.py` expose the adapter expected by Hermes. If you explicitly want native Hermes lifecycle capture, use Hermes's official plugin installer with the supplied repository URL, then select the provider:
 
 ```sh
 hermes plugins install REPO_URL --enable
@@ -14,54 +70,27 @@ hermes memory setup bigfeels
 hermes memory status
 ```
 
-The root `plugin.yaml` and `__init__.py` are the native provider entry. Core Python
-code is included in `src`; no separate pip install is needed inside Hermes.
-For a local checkout, the complete repository can also live at
-`$HERMES_HOME/plugins/bigfeels`. Do not copy only `adapters/hermes`.
+Start a new Hermes session for provider activation. Read [adapters/hermes/README.md](adapters/hermes/README.md) before configuring optional spaces. Do not migrate, delete, or overwrite another provider's data as part of installation.
 
-Confirm the selected profile and read its current memory provider first. Selecting
-bigfeels replaces the external provider slot; it does not migrate or delete that
-provider's stored data. Preserve built-in `MEMORY.md` and `USER.md`. Use normal
-Hermes plugin update commands for an existing installation; do not force-delete it.
+## Optional OpenClaw adapter
 
-No required fields follow provider selection. The next host session initializes
-the local database and background worker. Calls use Hermes's official auxiliary
-model API, which owns supported subscription authentication and credential refresh.
-Optional overrides use `plugins.bigfeels`, described in the adapter README.
-
-## OpenClaw
-
-Clone the supplied repository and install its **root directory** using
-`openclaw plugins install /absolute/path/to/bigfeels-mem`. Follow the
-[native plugin instructions](adapters/openclaw/README.md) for the memory slot and
-conversation-hook permissions. These are host settings, not bigfeels accounts.
-
-Python 3.11+ must be available as `python3`; if it is elsewhere, set the optional
-plugin `pythonPath` setting. The plugin starts its Python helper when needed. The
-helper receives no model credentials; requests go back to OpenClaw's official
-completion runtime. Do not configure a second provider or a local HTTP service.
-
-## Any MCP host
-
-Install this checkout with that host's available Python environment:
+Install the checkout root through OpenClaw's plugin installer only when native OpenClaw hooks are wanted:
 
 ```sh
-python3 -m pip install /absolute/path/to/bigfeels-mem
+openclaw plugins install /absolute/path/to/bigfeels-mem
 ```
 
-Add MCP command `bigfeels-mem`, arguments `["mcp"]`, using the executable's
-absolute path if the host has a different PATH. Storage opens locally on startup.
-The agent uses its current model to decide which explicit memories to save.
-MCP alone cannot automatically observe an arbitrary host's conversation lifecycle.
+Then follow [adapters/openclaw/README.md](adapters/openclaw/README.md) for the memory slot and conversation-hook permissions. OpenClaw is an optional peer dependency of the npm adapter package, not a dependency of the Python engine.
 
-## Verify and report honestly
+## Verify honestly
 
-Start a new host session, save a harmless unique test preference through the
-memory tool, recall it in another session, then forget it. For a native host,
-also check an automatically captured turn and confirm processing completes.
-If model access fails, inspect the host's ordinary model/login status; never
-copy its tokens into bigfeels or claim pending capture is successful learning.
+For every interface you install:
 
-Report which checks actually ran. A configured provider is not proof of live
-capture. Do not restart an active gateway or log into an account without the
-user's authorization. No browser is required for this installation flow.
+1. save a harmless unique memory in an explicit space;
+2. search and inspect it;
+3. correct it using the returned revision;
+4. preview deletion and review all affected records;
+5. delete with the returned plan token;
+6. confirm inspect no longer finds it.
+
+For automatic capture, also observe a unique event, process or wait for the configured worker, and confirm `status.queue` plus `status.processing`. Queued evidence is not completed learning. No live profile activation, gateway restart, or model login is implied by package installation.

@@ -52,7 +52,7 @@ class _IPv6HTTPServer(_HTTPServer):
     address_family = socket.AF_INET6
 
 
-def create_server(store, host='127.0.0.1', port=8765):
+def create_server(store, host='127.0.0.1', port=8765, processor=None):
     if not isinstance(host, str) or not _is_loopback(host):
         raise ValueError('Service host must be a loopback address')
     if type(port) is not int or not 0 <= port <= 65535:
@@ -220,7 +220,22 @@ def create_server(store, host='127.0.0.1', port=8765):
                 self._error(400, 'Request must be an object')
                 return
             try:
-                result = store.dispatch(principal, pieces[2], payload)
+                if pieces[2] == 'process':
+                    if set(payload) - {'limit'}:
+                        raise MemoryError('Unknown process option')
+                    limit = payload.get('limit', 8)
+                    if type(limit) is not int or not 1 <= limit <= 8:
+                        raise MemoryError('Processing limit must be between 1 and 8')
+                    processed = processor(limit, principal.spaces) if processor else 0
+                    result = {'processed': processed}
+                    result['status'] = store.dispatch(principal, 'status', {})
+                else:
+                    result = store.dispatch(principal, pieces[2], payload)
+                    if pieces[2] == 'forget_preview':
+                        target = payload.get('id')
+                        result.get('memories', []).sort(
+                            key=lambda item: item.get('id') != target,
+                        )
                 self._send(200, result)
             except MemoryError as exc:
                 self._error(exc.status, str(exc))
@@ -240,6 +255,7 @@ class BackgroundProcessor:
         self.interval = interval
         self.maintenance_interval = maintenance_interval
         self._stop = threading.Event()
+        self._processing = threading.Lock()
         self._thread = threading.Thread(target=self._run, name='bigfeels-memory-worker', daemon=True)
 
     def start(self):
@@ -248,7 +264,32 @@ class BackgroundProcessor:
 
     def stop(self):
         self._stop.set()
-        self._thread.join(timeout=max(2.0, self.interval * 2))
+        # Provider calls are already bounded by their configured timeout. Do not
+        # return from the explicit service lifecycle while processing is alive.
+        self._thread.join()
+
+    def process_pending(self, limit=8, spaces=None):
+        if type(limit) is not int or not 1 <= limit <= 8:
+            raise ValueError('Processing limit must be between 1 and 8')
+        if not self.provider or self._stop.is_set():
+            return 0
+        if not self._processing.acquire(blocking=False):
+            return 0
+        processed = 0
+        try:
+            if self.provider.can_extract:
+                while processed < limit and not self._stop.is_set():
+                    if not self.store.process_one(
+                            self.provider,
+                            self.provider if self.provider.can_embed else None,
+                            spaces=spaces):
+                        break
+                    processed += 1
+            if self.provider.can_embed:
+                self.store.process_embeddings(self.provider)
+        finally:
+            self._processing.release()
+        return processed
 
     def _run(self):
         maintenance_at = 0.0
@@ -258,13 +299,7 @@ class BackgroundProcessor:
                 if now >= maintenance_at:
                     self.store.maintenance()
                     maintenance_at = now + self.maintenance_interval
-                if self.provider and self.provider.can_extract:
-                    self.store.process_one(
-                        self.provider,
-                        self.provider if self.provider.can_embed else None,
-                    )
-                if self.provider and self.provider.can_embed:
-                    self.store.process_embeddings(self.provider)
+                self.process_pending(1)
             except Exception:
                 # Provider/store details can contain private material. Status is
                 # visible through the authenticated API; the worker stays alive.
@@ -273,12 +308,13 @@ class BackgroundProcessor:
 
 
 def serve(store, host='127.0.0.1', port=8765, provider=None, worker_interval=1.0, started=None):
-    httpd = create_server(store, host=host, port=port)
-    worker = BackgroundProcessor(store, provider, interval=worker_interval).start()
+    worker = BackgroundProcessor(store, provider, interval=worker_interval)
+    httpd = create_server(store, host=host, port=port, processor=worker.process_pending)
+    worker.start()
     try:
         if started:
             started(httpd.server_port)
         httpd.serve_forever()
     finally:
-        httpd.server_close()
         worker.stop()
+        httpd.server_close()

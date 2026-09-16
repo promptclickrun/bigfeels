@@ -129,6 +129,7 @@ test("native registration exposes lifecycle hooks and all declared tools", () =>
     "bigfeels_inspect",
     "bigfeels_remember",
     "bigfeels_correct",
+    "bigfeels_forget_preview",
     "bigfeels_forget",
     "bigfeels_status",
   ]);

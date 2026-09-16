@@ -5,14 +5,26 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 import secrets
 import sqlite3
 import time
 import uuid
 
 from .privacy import redact
-from .retrieval import cosine, fts_query, token_cost
-from .schema import SCHEMA
+from .retrieval import (
+    claims_compatible, cosine, fts_query, lexical_matches, lexical_score,
+    token_cost,
+)
+from .schema import JOB_DIAGNOSTIC_COLUMNS, SCHEMA, migrate_schema, validate_schema
+
+
+SAFE_JOB_ERRORS = frozenset({'provider_error', 'invalid_candidates'})
+SAFE_REJECTION_REASONS = frozenset({
+    'invalid_candidate', 'superseded_claim', 'mixed_invalid_candidates',
+})
+MAX_EXTRACTION_ATTEMPTS = 3
+DELETE_PLAN_TTL_SECONDS = 300
 
 
 class MemoryError(Exception):
@@ -73,22 +85,78 @@ def string_list(value, name):
     return list(dict.fromkeys(value))
 
 
+def normalized_claim(value):
+    return ' '.join(value.casefold().strip().rstrip('.!?').split())
+
+
+def grounded_claim_content(source, quote, claim):
+    """Use the concise claim unless its quote omits same-sentence context."""
+    offset = source.find(quote)
+    if offset < 0:
+        return claim
+    left = max((source.rfind(mark, 0, offset) for mark in '.!?;\n'), default=-1)
+    quote_end = offset + len(quote)
+    if quote.rstrip().endswith(('.', '!', '?')):
+        right = quote_end
+    else:
+        endings = [position for mark in '.!?;\n'
+                   if (position := source.find(mark, quote_end)) >= 0]
+        right = min(endings) + 1 if endings else len(source)
+    segment = source[left + 1:right]
+    leading = len(segment) - len(segment.lstrip())
+    sentence = segment.strip()
+    relative = offset - left - 1 - leading
+    surrounding = (sentence[:relative] + ' '
+                   + sentence[relative + len(quote):]).casefold()
+    surrounding_words = re.findall(r'[^\W_]+', surrounding, re.UNICODE)
+    meaningful = [word for word in surrounding_words
+                  if word not in {'a', 'an', 'i', 'the', 'we'}]
+    negations = {'not', 'no', 'never', 'without', 'unless'}
+    negative_outcomes = {'fail', 'failed', 'failure', 'denied', 'error', 'unsuccessful'}
+    source_negative = bool(negative_outcomes.intersection(quote.casefold().replace(':', ' ').split()))
+    claim_negative = bool(negative_outcomes.intersection(claim.casefold().replace(':', ' ').split()))
+    claim_words = set(re.findall(r'[^\W_]+', claim.casefold(), re.UNICODE))
+    if meaningful or (negations.intersection(set(surrounding_words)) - claim_words):
+        return sentence
+    if source_negative != claim_negative:
+        return sentence
+    return claim
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.embedder = None
         self.provider_status = {'extraction': 'not_configured', 'embeddings': 'not_configured'}
-        # Reserve the file privately before sqlite creates it (including under
-        # permissive process umasks). WAL inherits database permissions.
-        self.path.touch(mode=0o600, exist_ok=True)
-        self.path.chmod(0o600)
-        with closing(sqlite3.connect(self.path, timeout=10)) as c:
-            c.execute('PRAGMA journal_mode=WAL')
-            c.executescript(SCHEMA)
-            version = c.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()[0]
-            if version != '1':
+        existing = self.path.exists() and self.path.stat().st_size > 0
+        if existing:
+            # Validate read-only before DDL, journal changes, or chmod. Rejecting
+            # an unknown nonempty file must not bless or mutate it as schema v1.
+            try:
+                uri = self.path.resolve().as_uri() + '?mode=ro'
+                with closing(sqlite3.connect(uri, uri=True, timeout=10)) as c:
+                    c.execute('PRAGMA query_only=ON')
+                    validate_schema(c)
+            except (ValueError, sqlite3.Error):
                 raise MemoryError('Unsupported database schema', 409)
+            try:
+                with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as c:
+                    c.execute('BEGIN IMMEDIATE')
+                    migrate_schema(c)
+                    c.commit()
+            except (ValueError, sqlite3.Error):
+                raise MemoryError('Unsupported database schema', 409)
+            self.path.chmod(0o600)
+        else:
+            # Reserve the file privately before SQLite creates pages. WAL files
+            # inherit the database's permissions.
+            self.path.touch(mode=0o600, exist_ok=True)
+            self.path.chmod(0o600)
+            with closing(sqlite3.connect(self.path, timeout=10)) as c:
+                c.execute('PRAGMA journal_mode=WAL')
+                c.executescript(SCHEMA)
+                c.commit()
 
     @contextmanager
     def connection(self, write=False):
@@ -157,7 +225,8 @@ class Store:
         if not isinstance(payload, dict):
             raise MemoryError('Request must be an object')
         operations = {'observe': self._observe, 'remember': self._remember,
-                      'correct': self._correct, 'forget': self._forget,
+                      'correct': self._correct, 'forget_preview': self._forget_preview,
+                      'forget': self._forget,
                       'inspect': self._inspect, 'status': self._status, 'export': self._export}
         if operation in ('search', 'context'):
             return self._search(principal, payload, browsing=operation == 'search')
@@ -213,9 +282,17 @@ class Store:
         content = redact(required(d, 'content', 16000))
         kind = choice(d, 'kind', 'fact', ('fact', 'preference', 'decision', 'episode', 'procedure', 'task'))
         basis = choice(d, 'basis', 'direct', ('direct', 'observed', 'inferred'))
-        outcome = choice(d, 'outcome', 'unspecified', ('unspecified', 'proposed', 'attempted', 'verified', 'failed'))
-        if outcome == 'verified' and basis != 'observed':
-            raise MemoryError('Verified outcomes require observed evidence')
+        outcome = choice(d, 'outcome', 'unspecified',
+                         ('unspecified', 'proposed', 'attempted', 'attested',
+                          'verified', 'failed'))
+        if outcome == 'verified':
+            # A caller and a referenced tool event are still one attestation,
+            # not an independent semantic verifier. Legacy rows are preserved
+            # and labeled honestly by _memory, but new claims cannot acquire
+            # the old over-trusting label.
+            outcome = 'attested'
+        if outcome == 'attested' and basis != 'observed':
+            raise MemoryError('Caller-attested outcomes require an observed basis')
         start = stamp(d.get('valid_from'))
         end = stamp(d['valid_until']) if d.get('valid_until') else None
         if end and end <= start:
@@ -224,28 +301,33 @@ class Store:
         if key is not None:
             required(d, 'key', 500)
         evidence_ids = string_list(d.get('evidence_ids', []), 'evidence_ids')
+        if outcome == 'attested' and not evidence_ids:
+            raise MemoryError('Caller-attested outcomes require source evidence')
+        tool_evidence = False
         for eid in evidence_ids:
             evidence = self._item(c, p, eid, 'evidence')
             if evidence['space'] != space:
                 raise MemoryError('Evidence cannot cross memory spaces')
-            if outcome == 'verified' and evidence['speaker'] != 'tool':
-                raise MemoryError('Verified outcomes require a tool observation')
+            tool_evidence = tool_evidence or evidence['speaker'] == 'tool'
+        if outcome == 'attested' and not tool_evidence:
+            raise MemoryError('Caller-attested outcomes require a tool observation')
+
         # Resolve repeats before synthesizing explicit evidence. Every supplied
         # source still joins lineage, so forgetting cannot leave an orphan copy.
         existing = None
-        for row in c.execute("SELECT * FROM memories WHERE space=? AND content=? AND basis=? AND kind=? AND outcome=? AND key IS ? AND status IN ('active','candidate','disputed')",
-                             (space, content, basis, kind, outcome, key)):
+        for row in c.execute("SELECT * FROM memories WHERE space=? AND basis=? AND kind=? AND outcome=? AND key IS ? AND status IN ('active','candidate','disputed')",
+                             (space, basis, kind, outcome, key)):
             same_interval = row['valid_from'] == start and row['valid_until'] == end
             same_current = row['valid_from'] <= start and row['valid_until'] == end and (end is None or end > start)
-            if same_interval or same_current:
+            same_claim = normalized_claim(row['content']) == normalized_claim(content)
+            if same_claim and (same_interval or same_current):
                 existing = row['id']
                 break
         if existing:
             c.executemany('INSERT OR IGNORE INTO supports VALUES (?,?)', [(existing, e) for e in evidence_ids])
             return self._memory(c, p, existing)
         if not evidence_ids:
-            if outcome == 'verified':
-                raise MemoryError('Verified outcomes require source evidence')
+
             event = self._observe(c, p, dict(space=space, source='explicit:' + p.name,
                       source_event_id=uid('save'), session_id='explicit', speaker='user', content=content))
             evidence_ids = [event['id']]
@@ -254,8 +336,13 @@ class Store:
         mid = uid('mem')
         conflicts = []
         if key and status == 'active':
-            conflicts = list(c.execute("SELECT id FROM memories WHERE space=? AND key=? AND content!=? AND status IN ('active','disputed') AND (valid_until IS NULL OR valid_until>?) AND (? IS NULL OR valid_from<?)",
-                                       (space, key, content, start, end, end)))
+            possible = list(c.execute(
+                "SELECT id,content FROM memories WHERE space=? AND key=? AND content!=? "
+                "AND status IN ('active','disputed') AND (valid_until IS NULL OR valid_until>?) "
+                "AND (? IS NULL OR valid_from<?)",
+                (space, key, content, start, end, end)))
+            conflicts = [row for row in possible
+                         if not claims_compatible(content, row['content'])]
             if conflicts:
                 status = 'disputed'
                 for row in conflicts:
@@ -272,7 +359,24 @@ class Store:
         es = list(c.execute('SELECT e.id,e.content FROM evidence e JOIN supports s ON s.evidence_id=e.id WHERE s.memory_id=? ORDER BY e.id', (mid,)))
         m['evidence_ids'] = [e['id'] for e in es]
         m['source_available'] = bool(es) and all(e['content'] is not None for e in es)
+        if m['outcome'] == 'verified':
+            m['outcome_trust'] = 'legacy_caller_attested_not_independently_verified'
         return m
+
+    def _context_memory(self, c, p, mid):
+        """Return a compact agent-context projection with bounded lineage refs."""
+        full = self._memory(c, p, mid)
+        fields = ('id', 'space', 'content', 'kind', 'basis', 'outcome', 'key',
+                  'status', 'revision', 'valid_from', 'valid_until',
+                  'source_available')
+        compact = {key: full[key] for key in fields}
+        compact['evidence_count'] = len(full['evidence_ids'])
+        compact['evidence_ids'] = full['evidence_ids'][:3]
+        if len(full['evidence_ids']) > 3:
+            compact['evidence_refs_truncated'] = True
+        if 'outcome_trust' in full:
+            compact['outcome_trust'] = full['outcome_trust']
+        return compact
 
     def _inspect(self, c, p, d):
         mid = required(d, 'id', 200)
@@ -307,42 +411,103 @@ class Store:
             c.execute("UPDATE memories SET status='active',revision=revision+1 WHERE id=?", (new['id'],))
         return self._memory(c, p, new['id'])
 
+    def _forget_plan(self, c, p, item_id):
+        """Compute the privacy closure and a revision-bound confirmation token."""
+        if item_id.startswith('ev_'):
+            self._item(c, p, item_id, 'evidence')
+            eids, mids = {item_id}, set()
+        else:
+            self._item(c, p, item_id, 'memories')
+            eids, mids = set(), {item_id}
+        # Close over shared evidence and correction lineage. A token binds the
+        # complete dependency membership, so a later attachment cannot broaden
+        # an already confirmed deletion.
+        changed = True
+        while changed:
+            before = (len(eids), len(mids))
+            for mid in tuple(mids):
+                eids.update(r[0] for r in c.execute(
+                    'SELECT evidence_id FROM supports WHERE memory_id=?', (mid,)))
+                for row in c.execute(
+                        "SELECT source_id,target_id FROM relations WHERE kind='supersedes' AND (source_id=? OR target_id=?)",
+                        (mid, mid)):
+                    mids.update(row)
+            for eid in tuple(eids):
+                mids.update(r[0] for r in c.execute(
+                    'SELECT memory_id FROM supports WHERE evidence_id=?', (eid,)))
+            changed = before != (len(eids), len(mids))
+
+        memories = [self._item(c, p, mid, 'memories') for mid in sorted(mids)]
+        evidence = [self._item(c, p, eid, 'evidence') for eid in sorted(eids)]
+        identity = {
+            'selected': item_id,
+            'principal': p.name,
+            'spaces': sorted(p.spaces),
+            'memories': [[m['id'], m['space'], m['revision'], m['status'],
+                          m['valid_from'], m['valid_until']] for m in memories],
+            'evidence': [[e['id'], e['space'], e['identity'], e['fingerprint']]
+                         for e in evidence],
+        }
+        plan_hash = digest(json.dumps(identity, sort_keys=True, separators=(',', ':')))
+        return memories, evidence, plan_hash
+
+    def _forget_preview(self, c, p, d):
+        item_id = required(d, 'id', 200)
+        tomb = c.execute('SELECT space FROM tombstones WHERE id=?', (item_id,)).fetchone()
+        if tomb:
+            self._scope(p, tomb[0])
+            return {'id': item_id, 'plan_token': None, 'memories': [],
+                    'counts': {'memories': 0, 'evidence': 0}, 'status': 'deleted'}
+        memories, evidence, plan_hash = self._forget_plan(c, p, item_id)
+        issued_at = int(time.time())
+        token = f'{issued_at}.{digest(f"{issued_at}:{plan_hash}")}'
+        return {
+            'id': item_id,
+            'plan_token': token,
+            'plan_expires_at': issued_at + DELETE_PLAN_TTL_SECONDS,
+            'memories': [{'id': m['id'], 'content': m['content'],
+                          'revision': m['revision'], 'space': m['space']}
+                         for m in memories],
+            'counts': {'memories': len(memories), 'evidence': len(evidence)},
+        }
+
     def _forget(self, c, p, d):
         item_id = required(d, 'id', 200)
         tomb = c.execute('SELECT space FROM tombstones WHERE id=?', (item_id,)).fetchone()
         if tomb:
             self._scope(p, tomb[0])
             return {'memories': 0, 'evidence': 0, 'status': 'deleted'}
-        if item_id.startswith('ev_'):
-            self._item(c, p, item_id, 'evidence')
-            eids = {item_id}
-            mids = set()
+        memories, evidence, plan_hash = self._forget_plan(c, p, item_id)
+        supplied = d.get('plan_token')
+        if supplied is not None:
+            supplied = required(d, 'plan_token', 200)
+            try:
+                issued_text, supplied_digest = supplied.split('.', 1)
+                issued_at = int(issued_text)
+            except (ValueError, TypeError):
+                raise MemoryError('Deletion plan changed; preview it again', 409) from None
+            current_time = int(time.time())
+            expected = digest(f'{issued_at}:{plan_hash}')
+            if (issued_at > current_time + 5
+                    or current_time - issued_at > DELETE_PLAN_TTL_SECONDS
+                    or not secrets.compare_digest(supplied_digest, expected)):
+                raise MemoryError('Deletion plan changed; preview it again', 409)
         else:
-            self._item(c, p, item_id, 'memories')
-            eids, mids = set(), {item_id}
-        # Close over all supporting evidence and derived memories, including
-        # corrections, so deleted knowledge cannot survive in a derivative.
-        changed = True
-        while changed:
-            before = (len(eids), len(mids))
-            for mid in tuple(mids):
-                eids.update(r[0] for r in c.execute('SELECT evidence_id FROM supports WHERE memory_id=?', (mid,)))
-                for r in c.execute("SELECT source_id,target_id FROM relations WHERE kind='supersedes' AND (source_id=? OR target_id=?)", (mid, mid)):
-                    mids.update(r)
-            for eid in tuple(eids):
-                mids.update(r[0] for r in c.execute('SELECT memory_id FROM supports WHERE evidence_id=?', (eid,)))
-            changed = before != (len(eids), len(mids))
-        for eid in eids:
-            e = self._item(c, p, eid, 'evidence')
-            c.execute('INSERT OR IGNORE INTO tombstones VALUES (?,?,?)', (eid, e['identity'], e['space']))
-        for mid in mids:
-            m = self._item(c, p, mid, 'memories')
-            c.execute('INSERT OR IGNORE INTO tombstones VALUES (?,?,?)', (mid, None, m['space']))
-            c.execute('DELETE FROM memories WHERE id=?', (mid,))
-        for eid in eids:
-            c.execute('DELETE FROM evidence WHERE id=?', (eid,))
+            selected_memories = 0 if item_id.startswith('ev_') else 1
+            if len(memories) > selected_memories:
+                raise MemoryError('Deletion affects collateral memories; preview and confirm the current plan', 409)
+
+        for e in evidence:
+            c.execute('INSERT OR IGNORE INTO tombstones VALUES (?,?,?)',
+                      (e['id'], e['identity'], e['space']))
+        for m in memories:
+            c.execute('INSERT OR IGNORE INTO tombstones VALUES (?,?,?)',
+                      (m['id'], None, m['space']))
+            c.execute('DELETE FROM memories WHERE id=?', (m['id'],))
+        for e in evidence:
+            c.execute('DELETE FROM evidence WHERE id=?', (e['id'],))
         c.execute("INSERT OR REPLACE INTO metadata VALUES ('needs_purge','1')")
-        return {'memories': len(mids), 'evidence': len(eids), 'status': 'deleted'}
+        return {'memories': len(memories), 'evidence': len(evidence), 'status': 'deleted'}
 
     def _search(self, p, d, browsing=False):
         query = d.get('query', '')
@@ -381,9 +546,12 @@ class Store:
                 c.execute('CREATE VIRTUAL TABLE temp.recall_fts USING fts5(id UNINDEXED,content,key)')
                 c.executemany('INSERT INTO recall_fts VALUES (?,?,?)',
                               [(m['id'], m['content'], m['key']) for m in eligible.values()])
-                for row in c.execute('SELECT id,bm25(recall_fts) AS rank FROM recall_fts WHERE recall_fts MATCH ?', (fq,)):
-                    scores[row['id']] = 1.0 - row['rank']
-                    reasons[row['id']] = ['keyword']
+                for row in c.execute('SELECT id FROM recall_fts WHERE recall_fts MATCH ?', (fq,)):
+                    memory = eligible[row['id']]
+                    relevance = lexical_score(query, memory['content'], memory['key'])
+                    if relevance > 0:
+                        scores[row['id']] = relevance
+                        reasons[row['id']] = ['keyword']
             elif not query.strip():
                 scores = {mid: 1.0 for mid in eligible}
                 reasons = {mid: ['browse'] for mid in eligible}
@@ -394,7 +562,10 @@ class Store:
                         similarity = cosine(vector, json.loads(row[0]))
                         if similarity >= 0.65:
                             scores[mid] = scores.get(mid, 0) + similarity
-                            reasons.setdefault(mid, []).append('semantic')
+                            # Semantic evidence is the primary reason when the
+                            # configured index independently confirms a lexical
+                            # alias match; lexical-only fallback still works.
+                            reasons[mid] = ['semantic']
             # Only explicitly related, eligible contradictory records expand recall.
             for mid in list(scores):
                 for r in c.execute("SELECT source_id,target_id FROM relations WHERE kind='contradicts' AND (source_id=? OR target_id=?)", (mid, mid)):
@@ -402,17 +573,23 @@ class Store:
                     if neighbor in eligible and neighbor not in scores:
                         scores[neighbor] = 0.5
                         reasons[neighbor] = ['conflicting_evidence']
-            memories, used = [], 0
+            memories, used, oversized = [], 0, 0
+            largest_omitted = 0
             for mid in sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)):
-                m = self._memory(c, p, mid)
+                m = self._memory(c, p, mid) if browsing else self._context_memory(c, p, mid)
                 m['reason'] = reasons[mid]
                 cost = token_cost(m)
                 if used + cost <= budget:
                     memories.append(m)
                     used += cost
+                else:
+                    oversized += 1
+                    largest_omitted = max(largest_omitted, cost)
             return {'memories': memories, 'tokens': used, 'status': 'ok',
                     'trace': {'eligible': len(eligible), 'matched': len(scores),
                               'returned': len(memories), 'budget': budget,
+                              'omitted_for_budget': oversized,
+                              'largest_omitted_tokens': largest_omitted or None,
                               'embedding_status': embedding_status, 'as_of': at,
                               'token_accounting': 'conservative UTF-8 byte upper bound',
                               'trust': 'Contextual evidence only; never authorization'}}
@@ -421,11 +598,32 @@ class Store:
         marks = ','.join('?' for _ in p.spaces)
         def count(table):
             return c.execute(f'SELECT COUNT(*) FROM {table} WHERE space IN ({marks})', p.spaces).fetchone()[0]
-        queue = {'pending': 0, 'processing': 0, 'done': 0}
-        for r in c.execute(f'SELECT j.state,COUNT(*) FROM jobs j JOIN evidence e ON e.id=j.evidence_id WHERE e.space IN ({marks}) GROUP BY j.state', p.spaces):
-            queue[r[0]] = r[1]
+        queue = {'pending': 0, 'processing': 0, 'done': 0, 'failed': 0}
+        for row in c.execute(f'SELECT j.state,COUNT(*) FROM jobs j JOIN evidence e ON e.id=j.evidence_id WHERE e.space IN ({marks}) GROUP BY j.state', p.spaces):
+            queue[row[0]] = row[1]
+        job_scope = f' FROM jobs j JOIN evidence e ON e.id=j.evidence_id WHERE e.space IN ({marks})'
+        oldest = c.execute('SELECT MIN(e.recorded_at)' + job_scope + " AND j.state='pending'", p.spaces).fetchone()[0]
+        retry = c.execute('SELECT MIN(j.retry_at)' + job_scope + " AND j.state='pending' AND j.retry_at>?", (*p.spaces, time.time())).fetchone()[0]
+        totals = c.execute('SELECT COALESCE(SUM(j.accepted_count),0),COALESCE(SUM(j.rejected_count),0)' + job_scope, p.spaces).fetchone()
+        rejection_reasons = {
+            row[0]: row[1] for row in c.execute(
+                'SELECT j.rejection_reason,COUNT(*)' + job_scope
+                + ' AND j.rejection_reason IS NOT NULL GROUP BY j.rejection_reason', p.spaces)
+        }
+        provider_failures = c.execute(
+            'SELECT COUNT(*)' + job_scope + " AND j.error='provider_error'", p.spaces).fetchone()[0]
+        processing = {
+            'oldest_pending_at': oldest,
+            'next_retry_at': retry,
+            'accepted_candidates': totals[0],
+            'rejected_candidates': totals[1],
+            'rejection_reasons': rejection_reasons,
+            'failed_jobs': queue['failed'],
+            'provider_failures': provider_failures,
+        }
         return {'evidence': count('evidence'), 'memories': count('memories'), 'spaces': list(p.spaces),
-                'queue': queue, 'providers': dict(self.provider_status), 'schema_version': 1}
+                'queue': queue, 'processing': processing,
+                'providers': dict(self.provider_status), 'schema_version': 1}
 
     def _export(self, c, p, d):
         marks = ','.join('?' for _ in p.spaces)
@@ -435,7 +633,13 @@ class Store:
         ids = {m['id'] for m in bundle['memories']}
         bundle['supports'] = [dict(r) for r in c.execute('SELECT * FROM supports') if r['memory_id'] in ids]
         bundle['relations'] = [dict(r) for r in c.execute('SELECT * FROM relations') if r['source_id'] in ids and r['target_id'] in ids]
-        bundle['jobs'] = [dict(r) for r in c.execute(f'SELECT j.evidence_id,j.state,j.attempts FROM jobs j JOIN evidence e ON e.id=j.evidence_id WHERE e.space IN ({marks})', p.spaces)]
+        # Preserve the version-1 job record shape. Additive local diagnostics do
+        # not leak into an established export envelope; terminal invalid-output
+        # failures restore as pending so older readers retry rather than accept.
+        bundle['jobs'] = [dict(r) for r in c.execute(
+            f"SELECT j.evidence_id,CASE WHEN j.state='failed' THEN 'pending' ELSE j.state END AS state,"
+            f'j.attempts FROM jobs j JOIN evidence e ON e.id=j.evidence_id '
+            f'WHERE e.space IN ({marks})', p.spaces)]
         return bundle
 
     def restore(self, bundle):
@@ -459,10 +663,30 @@ class Store:
                             raise MemoryError('Invalid export space')
                         c.execute(f'INSERT INTO {table} ({",".join(allowed)}) VALUES ({",".join("?" for _ in allowed)})', [row[k] for k in allowed])
                 for job in bundle.get('jobs', []):
-                    if not isinstance(job, dict) or set(job) != {'evidence_id', 'state', 'attempts'} or job['state'] not in ('pending', 'processing', 'done') or type(job['attempts']) is not int or job['attempts'] < 0:
+                    if not isinstance(job, dict):
                         raise MemoryError('Invalid export job')
-                    c.execute('INSERT INTO jobs(evidence_id,state,attempts) VALUES (?,?,?)',
-                              (job['evidence_id'], 'done' if job['state'] == 'done' else 'pending', job['attempts']))
+                    required_job = {'evidence_id', 'state', 'attempts'}
+                    optional_job = {'retry_at', 'error', *JOB_DIAGNOSTIC_COLUMNS}
+                    if not required_job <= set(job) or not set(job) <= required_job | optional_job:
+                        raise MemoryError('Invalid export job')
+                    if (job['state'] not in ('pending', 'processing', 'done', 'failed')
+                            or type(job['attempts']) is not int or job['attempts'] < 0):
+                        raise MemoryError('Invalid export job')
+                    retry_at = job.get('retry_at', 0)
+                    accepted = job.get('accepted_count', 0)
+                    rejected = job.get('rejected_count', 0)
+                    error = job.get('error')
+                    reason = job.get('rejection_reason')
+                    if (type(retry_at) not in (int, float) or retry_at < 0
+                            or type(accepted) is not int or accepted < 0
+                            or type(rejected) is not int or rejected < 0
+                            or error not in SAFE_JOB_ERRORS | {None}
+                            or reason not in SAFE_REJECTION_REASONS | {None}):
+                        raise MemoryError('Invalid export job')
+                    state = 'pending' if job['state'] == 'processing' else job['state']
+                    c.execute('INSERT INTO jobs(evidence_id,state,attempts,retry_at,error,accepted_count,rejected_count,rejection_reason) VALUES (?,?,?,?,?,?,?,?)',
+                              (job['evidence_id'], state, job['attempts'], retry_at,
+                               error, accepted, rejected, reason))
                 if c.execute('SELECT 1 FROM supports s JOIN memories m ON m.id=s.memory_id JOIN evidence e ON e.id=s.evidence_id WHERE m.space!=e.space LIMIT 1').fetchone():
                     raise MemoryError('Export has evidence crossing spaces')
                 if c.execute('SELECT 1 FROM relations r JOIN memories a ON a.id=r.source_id JOIN memories b ON b.id=r.target_id WHERE a.space!=b.space LIMIT 1').fetchone():
@@ -495,6 +719,35 @@ class Store:
                 c.execute('PRAGMA wal_checkpoint(TRUNCATE)')
         return {'expired_evidence': len(ids)}
 
+    def _superseded_candidate(self, c, evidence_id, key, content):
+        """Return true when delayed work repeats a claim already corrected."""
+        rows = c.execute(
+            "SELECT old.content,old.key FROM memories old "
+            "JOIN supports s ON s.memory_id=old.id "
+            "JOIN relations r ON r.target_id=old.id AND r.kind='supersedes' "
+            "WHERE s.evidence_id=? AND old.status='superseded'",
+            (evidence_id,))
+        claim = normalized_claim(content)
+        return any(row['key'] == key and (
+                       normalized_claim(row['content']) == claim
+                       or claims_compatible(row['content'], content))
+                   for row in rows)
+
+    def _finish_failed_attempt(self, c, evidence_id, lease, error, *, rejected=0,
+                               reason=None):
+        attempts = c.execute(
+            'SELECT attempts FROM jobs WHERE evidence_id=? AND lease_token=?',
+            (evidence_id, lease)).fetchone()
+        if not attempts:
+            return
+        terminal = attempts[0] >= MAX_EXTRACTION_ATTEMPTS
+        c.execute(
+            "UPDATE jobs SET state=?,retry_at=?,error=?,lease_token=NULL,"
+            "rejected_count=rejected_count+?,rejection_reason=? "
+            "WHERE evidence_id=? AND lease_token=?",
+            ('failed' if terminal else 'pending', 0 if terminal else time.time() + 30,
+             error, rejected, reason, evidence_id, lease))
+
     def process_one(self, extractor, embedder=None, *, spaces=None):
         lease = uid('lease')
         scope_sql = ''
@@ -512,9 +765,12 @@ class Store:
             c.execute("UPDATE jobs SET state='processing',lease_until=?,lease_token=?,attempts=attempts+1 WHERE evidence_id=?", (time.time()+120, lease, e['id']))
         try:
             candidates = extractor.extract(e)
-            if not isinstance(candidates, list) or len(candidates) > 32:
-                raise ValueError('Invalid extraction')
+            malformed_response = not isinstance(candidates, list) or len(candidates) > 32
+            if malformed_response:
+                candidates = [None]
             mids = []
+            accepted = invalid = suppressed = 0
+            rejection_codes = set()
             with self.connection(True) as c:
                 live = c.execute("SELECT e.content FROM evidence e JOIN jobs j ON j.evidence_id=e.id WHERE e.id=? AND j.lease_token=? AND (e.expires_at IS NULL OR e.expires_at>?)", (e['id'], lease, now())).fetchone()
                 if not live or live[0] is None:
@@ -522,13 +778,13 @@ class Store:
                 p = Principal('extractor', (e['space'],))
                 for candidate in candidates:
                     if not isinstance(candidate, dict):
+                        invalid += 1
+                        rejection_codes.add('invalid_candidate')
                         continue
                     quote = candidate.get('quote', '')
                     basis = candidate.get('basis', 'inferred')
                     outcome = candidate.get('outcome', 'unspecified')
-                    # A substring can omit a negation or critical condition.
-                    # Preserve the entire bounded evidence when promoting it;
-                    # synthesis remains candidate knowledge.
+                    claim = candidate.get('content', '')
                     grounded = isinstance(quote, str) and bool(quote.strip()) and quote in e['content']
                     if basis == 'direct' and e['speaker'] != 'user':
                         basis = 'inferred'
@@ -536,34 +792,58 @@ class Store:
                         basis = 'inferred'
                     if not grounded:
                         basis = 'inferred'
-                    if outcome == 'verified':
-                        # A model label is not structured verification. Keep the
-                        # full tool result, with no synthesized success claim.
+                    if outcome in ('verified', 'attested'):
+                        # Provider output is candidate extraction, never an
+                        # independent verifier of a caller's success claim.
                         outcome = 'unspecified'
-                    content = e['content'] if grounded and basis != 'inferred' else candidate.get('content', '')
-                    if not isinstance(content, str) or not content.strip():
+                    if not isinstance(claim, str) or not claim.strip():
+                        invalid += 1
+                        rejection_codes.add('invalid_candidate')
                         continue
+                    content = (grounded_claim_content(e['content'], quote, claim)
+                               if grounded and basis != 'inferred' else claim)
                     if len(content) > 16000:
-                        basis = 'inferred'
-                        content = candidate.get('content', '')
-                    if not isinstance(content, str) or not content.strip():
+                        invalid += 1
+                        rejection_codes.add('invalid_candidate')
+                        continue
+                    key = candidate.get('key')
+                    if self._superseded_candidate(c, e['id'], key, content):
+                        suppressed += 1
+                        rejection_codes.add('superseded_claim')
                         continue
                     payload = {k: candidate[k] for k in ('kind', 'key') if k in candidate}
                     payload.update(space=e['space'], content=content, basis=basis, outcome=outcome,
                                    evidence_ids=[e['id']], valid_from=e['occurred_at'])
                     try:
-                        m = self._remember(c, p, payload)
-                        mids.append(m['id'])
+                        memory = self._remember(c, p, payload)
+                        mids.append(memory['id'])
+                        accepted += 1
                     except MemoryError:
-                        continue
-                c.execute("UPDATE jobs SET state='done',error=NULL,lease_token=NULL WHERE evidence_id=? AND lease_token=?", (e['id'], lease))
+                        invalid += 1
+                        rejection_codes.add('invalid_candidate')
+                rejected = invalid + suppressed
+                reason = None
+                if len(rejection_codes) == 1:
+                    reason = next(iter(rejection_codes))
+                elif rejection_codes:
+                    reason = 'mixed_invalid_candidates'
+                if invalid and accepted + suppressed == 0:
+                    self._finish_failed_attempt(
+                        c, e['id'], lease, 'invalid_candidates',
+                        rejected=rejected, reason=reason)
+                    return False
+                c.execute(
+                    "UPDATE jobs SET state='done',retry_at=0,error=NULL,lease_token=NULL,"
+                    "accepted_count=accepted_count+?,rejected_count=rejected_count+?,"
+                    "rejection_reason=? WHERE evidence_id=? AND lease_token=?",
+                    (accepted, rejected, reason, e['id'], lease))
             if embedder:
-                for mid in mids:
+                for mid in dict.fromkeys(mids):
                     self._embed_memory(mid, embedder)
             return True
         except Exception:
             with self.connection(True) as c:
-                c.execute("UPDATE jobs SET state='pending',retry_at=?,error='provider_error',lease_token=NULL WHERE evidence_id=? AND lease_token=?", (time.time()+30, e['id'], lease))
+                self._finish_failed_attempt(c, e['id'], lease, 'provider_error')
             return False
 
     def _embed_memory(self, mid, embedder):

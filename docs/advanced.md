@@ -1,8 +1,8 @@
-# Optional service and custom models
+# Standalone HTTP, UI, and custom models
 
-Native Hermes/OpenClaw plugins and local MCP do not require these settings.
-Use this mode only when you explicitly want a separately running authenticated
-HTTP service, its browser inspector, or independently configured models.
+The Python CLI and direct-local MCP are the simplest host-neutral interfaces. Use the standalone service when you want an authenticated loopback API, browser workspace, or a continuously running extraction worker.
+
+## Start the service
 
 ```sh
 bigfeels-mem init
@@ -10,19 +10,15 @@ bigfeels-mem pair inspector --space owner
 bigfeels-mem serve
 ```
 
-The optional inspector is at `http://127.0.0.1:8765`. The token authenticates an
-HTTP client; it is not a bigfeels account or a model-provider credential. The
-browser keeps it only in memory. Each token has explicit space grants and
-authorizes all memory operations in those spaces. Revoke one with
-`bigfeels-mem revoke --token-env BIGFEELS_MEM_TOKEN`.
+The API and UI listen at `http://127.0.0.1:8765` by default. The paired token is an HTTP credential scoped to named spaces, not a bigfeels account or model credential. The UI keeps it only in page memory.
 
-For MCP over this HTTP service, explicitly supply arguments
-`["mcp", "--url", "http://127.0.0.1:8765"]` and the paired
-`BIGFEELS_MEM_TOKEN`. Without `--url`, MCP uses direct local access.
+The browser workspace supports explicit save, browse/search, inspect, correction, processing diagnostics/manual bounded processing, and deletion preview followed by plan-token confirmation.
 
-Native integrations do not read this separate model configuration. For an
-independent service, an optional OpenAI-compatible extraction/embedding provider
-can be configured as follows:
+For MCP over an existing service, use `mcp --url http://127.0.0.1:8765` with a scoped token environment. The bundled HTTP client supports the complete lifecycle, including deletion preview and bounded processing. Direct-local MCP avoids the service and token when all clients share the same OS trust boundary.
+
+## Standalone provider configuration
+
+Explicit memory operations work without a model. Only queued observations and optional embeddings need a provider.
 
 ```sh
 bigfeels-mem configure --base-url https://api.openai.com/v1 \
@@ -30,18 +26,12 @@ bigfeels-mem configure --base-url https://api.openai.com/v1 \
   --embedding-model YOUR_EMBEDDING_MODEL --allow-remote
 ```
 
-Inject the key through your service manager's secret environment. Only the
-environment variable name is stored in `config.json`; this advanced mode does
-not provide its own credential vault or subscription login. Prefer the native
-host integration to inherit its credential management.
+Inject the key through the process environment. `config.json` stores only the environment variable name, endpoint, models, timeout, and remote-transfer consent. A loopback-compatible provider does not require `--allow-remote`.
 
-Remote processing sends redacted evidence for extraction, memory content for
-embeddings, and queries for query embeddings. Redaction is best effort; it cannot
-recognize arbitrary private information. A loopback compatible provider can be
-used without `--allow-remote`. Restart this separate service after configuration
-changes. Extraction needs JSON-object responses; embeddings need an actual
-embedding model. A chat subscription is not an embedding API credential.
+Remote processing sends redacted evidence for extraction, memory content for embeddings, and queries for query embeddings. Redaction is best effort. Provider redirects and HTTP proxies are disabled, requests are bounded, and diagnostics omit private source text and upstream error bodies.
 
-Without a provider the service still supports explicit saves, corrections,
-forgetting, evidence inspection, keyword retrieval, and export. Captured events
-remain queued until a processor with access to their spaces handles them.
+Run `bigfeels-mem process --space SPACE --limit 8` for an explicit bounded batch or leave `serve` running for background processing. Always read the returned/current status. Queued, retrying, failed, and rejected work are distinct from completed learning.
+
+## Security boundary
+
+The service binds only to loopback, validates Host and browser Origin headers, and requires one bearer token per `/v1/*` operation. Static UI assets and `/health` are public but reveal no memory. Use OS permissions and disk encryption for storage. The HTTP token does not protect against another process that can already read the database as the same OS user.

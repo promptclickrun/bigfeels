@@ -1,76 +1,44 @@
-# Why bigfeels works this way
+# Design
 
-A useful agent memory system remembers across tasks without turning every old
-sentence into a permanent fact. Its strongest qualities are selective capture,
-retrieval relevant to the current task, traceable evidence, explicit uncertainty,
-correction over time, controlled sharing, and inexpensive operation. Continuity
-also requires stable identities: retries and switching agents must not multiply
-claims or silently move information between projects.
+bigfeels is a host-neutral local memory engine. Its durable model and mutation rules do not belong to Hermes, OpenClaw, MCP, or the browser. Interfaces are replaceable clients of the same scoped core.
 
-The design addresses failure modes that a memory implementation needs to handle;
-this is not a claim that every existing product has each defect.
+## Layers
 
-| Failure mode | bigfeels response | Cost or remaining limit |
+1. **Evidence** records what was captured, where, when, and in which space. Stable event identities make retries idempotent.
+2. **Knowledge** records explicit or derived memories with kind, basis, outcome, status, validity, revision, and supporting evidence.
+3. **Context** is a bounded retrieval product. It is not a dump of the database and never carries authorization.
+
+The Python core uses SQLite, standard-library HTTP, and no mandatory third-party runtime dependency. Keyword retrieval is always available; embeddings and extraction providers are optional.
+
+## First-class interfaces
+
+- The CLI performs the complete explicit lifecycle directly against local storage and emits JSON.
+- MCP gives generic clients the same explicit lifecycle over stdio.
+- HTTP gives scoped loopback clients a stable v1 JSON contract.
+- The browser workspace is an HTTP client for visible inspection and mutation.
+- Native host plugins add lifecycle capture, recall injection, and host-owned extraction. They are optional adapters.
+
+MCP cannot automatically observe arbitrary host conversations. `observe` queues evidence only. A native adapter or explicit client call must provide lifecycle events, and extraction needs a configured model route. This boundary is intentional rather than papered over with a universal-capture claim.
+
+## Safety choices
+
+| Failure mode | Response | Remaining limit |
 | --- | --- | --- |
-| A summary drops a qualification or negation | Automatic promotion retains complete bounded source evidence | More context; longer synthesis stays a candidate |
-| Similarity retrieves an obsolete fact | Validity intervals, revisions, explicit correction lineage | Unstructured contradictions need a shared subject key |
-| Repeated recall becomes independent corroboration | Source identity, deduplication, memory-tool echo exclusion | Adapters cannot recognize arbitrary human paraphrases of recalled facts |
-| An agent reports success without observing it | Source basis and outcome are separate; extraction cannot assert verification | Explicit verification still depends on trustworthy evidence |
-| One project's secrets appear in another | Integration scopes are checked before ranking and extraction | Local access trusts the OS user; HTTP credentials authorize their assigned spaces |
-| Deletion leaves a source that can recreate the fact | Delete dependency closure and retain content-free replay tombstones | External transcripts, exports, and provider copies remain external |
-| A write blocks the conversation or disappears during failure | Durable leased processing with bounded provider calls and retries | Host capture must reach the local service before it is durable |
-| A memory becomes a hidden instruction or permission | Retrieved context is labeled evidence, not authority | The consuming agent must maintain its own instruction boundaries |
-| Infrastructure overwhelms a personal installation | Standard-library service and SQLite FTS/vector scan | Exact vector search targets modest corpora, not a large fleet |
+| Summary drops qualification or negation | Keep bounded source evidence and lineage | Long synthesis may remain candidate |
+| Obsolete fact wins recall | Validity, revisions, correction lineage | Unstructured contradictions benefit from keys |
+| Recalled content becomes fresh corroboration | Stable source identity and origin links | Arbitrary human paraphrases remain hard |
+| Model claims success | Basis and outcome stay separate | Trustworthy tool evidence is still required |
+| One project influences another | Scope before ranking/extraction | Same-OS-user filesystem access is not sandboxed |
+| Deletion silently expands | Preview full dependency closure and bind a plan token | External transcripts/exports remain external |
+| Capture is mistaken for learning | Durable queue plus explicit processing diagnostics | Provider quality and availability remain external |
+| Memory becomes an instruction | Label recall as contextual evidence | Consuming hosts must enforce their own policy |
 
-## Three layers
+## Deletion
 
-**Evidence** records what was captured, where, when, and under which space. Stable
-event identities make retries idempotent. Redaction and capture policy run before
-persistence. Explicit saves also retain evidence; they do not bypass provenance.
+Forgetting closes over supporting evidence, dependent memories, and correction lineage. Public interfaces preview all affected memories and evidence counts before execution. The token binds the actual closure and revisions for five minutes, so a concurrent dependency change or delayed confirmation becomes stale rather than broadening deletion silently.
 
-**Knowledge** records derived or explicitly saved memories, including their kind,
-source basis, status, validity, revision, and supporting evidence. Candidate,
-active, disputed, and superseded states remain inspectable. Agreement adds source
-lineage rather than artificial confidence votes. A correction changes the current
-answer while retaining historical meaning until the lineage is forgotten.
+## Processing
 
-**Task context** is a bounded retrieval product, not the database itself. Scoped
-keyword and optional vector results are filtered by temporal validity and status.
-The response includes evidence references, matching information, and uncertainty.
-Abstaining is preferable to inserting an unrelated or unsupported memory.
+`remember` commits a memory synchronously. `observe` commits source evidence and a job. Workers use leases and bounded batches. Status reports queue states and safe retry/failure information without source text or provider error bodies. A zero process count never implies success.
 
-## Integration and trust
-
-The revised setup follows Hermes's existing local-memory pattern. Its
-[memory-provider guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers/)
-shows native activation through `hermes memory setup`; the Holographic provider
-uses local SQLite without external service credentials. Cloud providers such as
-Honcho and Mem0 have service credentials because they use a separate backend.
-bigfeels's on-device default has no reason to impose that backend login flow.
-
-For extraction, the inspected Hermes `agent.auxiliary_client.call_llm` routes
-text tasks through the configured main provider/model and supported authentication.
-OpenClaw exposes `api.runtime.llm.complete` for the same host-owned boundary.
-Calling those APIs avoids building a second subscription login, credential store,
-token-refresh path, or hardcoded provider endpoint inside bigfeels.
-
-Hermes and OpenClaw use their native lifecycle contracts for capture and recall.
-MCP exposes explicit tools to other hosts; it cannot promise automatic capture
-without access to that host's lifecycle. Shared owner memory and explicitly named
-project spaces give participating agents continuity without inferring links from
-folders or names.
-
-The shared local core owns persistence and mutation rules. Native adapters use
-direct local access (Python) or a private child pipe (Node), requiring no network
-credentials or manual service setup. Host completion APIs own model selection,
-subscription support, authentication, and refresh. bigfeels does not copy host
-credentials. Optional standalone HTTP access retains scoped bearer authentication.
-Provider output is untrusted structured input and cannot grant permissions,
-verify its own success, or execute procedures. Embeddings and independent model
-configuration are advanced options, not prerequisites for useful memory.
-
-The preview favors auditability and conservative promotion over autonomous
-consolidation. Future improvements should be justified by realistic continuity
-evaluations: answer correctness, stale-fact exposure, cross-scope leakage,
-abstention, deletion durability, latency, and model cost. The bundled synthetic
-replay is a regression fixture, not evidence of general superiority.
+The system favors auditable behavior, abstention, and explicit capability boundaries over autonomous magic. The bundled replay is a regression fixture, not proof of general superiority.

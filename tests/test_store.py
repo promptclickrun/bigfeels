@@ -1,10 +1,14 @@
 import concurrent.futures
+from contextlib import closing
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 try:
-    from bigfeels_mem.store import Store, MemoryError
+    from bigfeels_mem.schema import SCHEMA
+    from bigfeels_mem.store import DELETE_PLAN_TTL_SECONDS, Store, MemoryError
 except ImportError:
     Store = None
 
@@ -25,6 +29,47 @@ class StoreTests(unittest.TestCase):
 
     def remember(self, content='Use SQLite for the memory service', **kw):
         return self.call('remember', space='owner', content=content, **kw)
+
+    def test_nonempty_unknown_database_is_rejected_without_mutation(self):
+        malformed = Path(self.tmp.name) / 'malformed.sqlite'
+        with closing(sqlite3.connect(malformed)) as connection:
+            connection.execute('CREATE TABLE jobs (evidence_id TEXT PRIMARY KEY)')
+            connection.commit()
+        before = malformed.read_bytes()
+        with self.assertRaises(MemoryError) as error:
+            Store(malformed)
+        self.assertEqual(error.exception.status, 409)
+        self.assertEqual(malformed.read_bytes(), before)
+
+    def test_existing_v1_database_receives_additive_job_diagnostics(self):
+        legacy = Path(self.tmp.name) / 'legacy-v1.sqlite'
+        old_schema = SCHEMA.replace(
+            ",\n accepted_count INTEGER NOT NULL DEFAULT 0,\n"
+            " rejected_count INTEGER NOT NULL DEFAULT 0,\n"
+            " rejection_reason TEXT)",
+            ")",
+        )
+        self.assertNotEqual(old_schema, SCHEMA)
+        with closing(sqlite3.connect(legacy)) as connection:
+            connection.executescript(old_schema)
+            connection.commit()
+        Store(legacy)
+        with closing(sqlite3.connect(legacy)) as connection:
+            columns = {row[1] for row in connection.execute('PRAGMA table_info(jobs)')}
+        self.assertTrue({'accepted_count', 'rejected_count', 'rejection_reason'} <= columns)
+
+    def test_deletion_preview_token_expires_without_deleting(self):
+        memory = self.remember('Short-lived deletion confirmation.')
+        with patch('bigfeels_mem.store.time.time', return_value=1_000):
+            preview = self.call('forget_preview', id=memory['id'])
+        with patch(
+            'bigfeels_mem.store.time.time',
+            return_value=1_000 + DELETE_PLAN_TTL_SECONDS + 1,
+        ):
+            with self.assertRaises(MemoryError) as expired:
+                self.call('forget', id=memory['id'], plan_token=preview['plan_token'])
+        self.assertEqual(expired.exception.status, 409)
+        self.assertEqual(self.call('inspect', id=memory['id'])['content'], memory['content'])
 
     def observe(self, **kw):
         d = dict(space='owner', source='hermes', source_event_id='turn-1',

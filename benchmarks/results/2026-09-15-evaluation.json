@@ -1,0 +1,133 @@
+{
+  "evaluation_date": "2026-09-15",
+  "candidate": {
+    "base_commit": "f51179661fec624f3f40fa4221a982df5d70f324",
+    "state": "uncommitted integrated working tree",
+    "bigfeels_version": "0.1.0"
+  },
+  "continuity_v2": {
+    "corpus_version": "2026-09-15.1",
+    "corpus_sha256": "30c5f40b08390420fa109bf5c41011d2c0fad922773fd2bfc023f5ea1c9d7d06",
+    "budget_bytes": 3200,
+    "systems": {
+      "no_memory": {
+        "version": "1.0.0",
+        "executed_cases": 0,
+        "total_cases": 8,
+        "mean_retrieval_recall": 0.0,
+        "mean_retrieval_precision": 0.0,
+        "trust_gate_passed": null,
+        "trust_adjusted_score": 0.0
+      },
+      "curated_notes": {
+        "version": "1.0.0",
+        "executed_cases": 3,
+        "total_cases": 8,
+        "mean_retrieval_recall": 0.6667,
+        "mean_retrieval_precision": 0.6667,
+        "trust_gate_passed": true,
+        "trust_adjusted_score": 0.6
+      },
+      "simple_lexical": {
+        "version": "1.0.0",
+        "executed_cases": 3,
+        "total_cases": 8,
+        "mean_retrieval_recall": 0.6667,
+        "mean_retrieval_precision": 0.6667,
+        "trust_gate_passed": true,
+        "trust_adjusted_score": 0.6
+      },
+      "bigfeels": {
+        "version": "0.1.0",
+        "executed_cases": 8,
+        "total_cases": 8,
+        "mean_retrieval_recall": 1.0,
+        "mean_retrieval_precision": 1.0,
+        "trust_gate_passed": true,
+        "trust_adjusted_score": 1.0
+      },
+      "mnemosyne": {
+        "version": "3.15.1",
+        "executed_cases": 4,
+        "total_cases": 8,
+        "mean_retrieval_recall": 0.75,
+        "mean_retrieval_precision": 0.75,
+        "trust_gate_passed": true,
+        "trust_adjusted_score": 0.7833
+      }
+    },
+    "limit": "Eight synthetic trust/capability cases; not a general superiority benchmark."
+  },
+  "longmemeval_s_development_first_100": {
+    "dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+    "dataset_questions": 500,
+    "evaluated_questions": 100,
+    "subset_policy": "first_n_development_only",
+    "metric_contract": "gold-session retrieval proxy; not answer accuracy or turn-level precision",
+    "budget_bytes": 3200,
+    "systems": {
+      "no_memory": {
+        "hits": 0,
+        "questions": 100,
+        "session_recall_proxy": 0.0,
+        "mean_retrieval_latency_ms": 0.0,
+        "ingestion_failures": 0
+      },
+      "curated_notes": {
+        "hits": 12,
+        "questions": 100,
+        "session_recall_proxy": 0.12,
+        "mean_retrieval_latency_ms": 0.01,
+        "ingestion_failures": 0
+      },
+      "simple_lexical": {
+        "hits": 68,
+        "questions": 100,
+        "session_recall_proxy": 0.68,
+        "mean_retrieval_latency_ms": 13.81,
+        "ingestion_failures": 0
+      },
+      "bigfeels": {
+        "hits": 91,
+        "questions": 100,
+        "session_recall_proxy": 0.91,
+        "mean_retrieval_latency_ms": 22.17,
+        "ingestion_failures": 0
+      }
+    },
+    "result": "bigfeels exceeded simple_lexical by 0.23 on the gold-session retrieval proxy."
+  },
+  "longmemeval_s_holdout_400": {
+    "dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+    "dataset_offset": 100,
+    "evaluated_questions": 400,
+    "subset_policy": "four fixed 100-question shards covering offsets 100 through 499",
+    "metric_contract": "gold-session retrieval proxy; not answer accuracy or turn-level precision",
+    "budget_bytes": 3200,
+    "systems": {
+      "simple_lexical": {
+        "hits": 249,
+        "questions": 400,
+        "session_recall_proxy": 0.6225,
+        "mean_retrieval_latency_ms": 14.14,
+        "ingestion_failures": 0
+      },
+      "bigfeels": {
+        "hits": 351,
+        "questions": 400,
+        "session_recall_proxy": 0.8775,
+        "mean_retrieval_latency_ms": 30.0,
+        "ingestion_failures": 0
+      }
+    },
+    "result": "bigfeels exceeded simple_lexical by 0.255 on the held-out gold-session retrieval proxy."
+  },
+  "mnemosyne_scale_boundary": {
+    "package": "mnemosyne-memory 3.15.1",
+    "adapter": "public BeamMemory.remember_batch with imported trust, LLM/entity extraction disabled, isolated /tmp database",
+    "completed": "One LongMemEval_S question with a gold-session hit.",
+    "not_completed": "Five-question batch-path run exceeded 420 seconds; ten-question run was stopped without a result; earlier per-row twenty-question run exited before producing JSON.",
+    "scoring": "No zero score assigned. This is operational throughput evidence only."
+  },
+  "claim_boundary": "Supports superiority over simple lexical on the frozen 400-question holdout proxy and over curated notes on the normalized 100-question development proxy, plus stronger tested capability coverage than the installed Mnemosyne adapter on Continuity_V2. Does not establish general answer quality or general retrieval superiority over Mnemosyne."
+}

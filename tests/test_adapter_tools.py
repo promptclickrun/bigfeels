@@ -10,7 +10,7 @@ from adapters.hermes.tools import handle_tool, tool_schemas
 
 
 class HermesAdapterToolTests(unittest.TestCase):
-    def test_schemas_expose_only_the_six_bounded_memory_operations(self) -> None:
+    def test_schemas_expose_only_the_seven_bounded_memory_operations(self) -> None:
         schemas = tool_schemas()
 
         self.assertEqual(
@@ -20,6 +20,7 @@ class HermesAdapterToolTests(unittest.TestCase):
                 "bigfeels_inspect",
                 "bigfeels_remember",
                 "bigfeels_correct",
+                "bigfeels_forget_preview",
                 "bigfeels_forget",
                 "bigfeels_status",
             ],
@@ -38,6 +39,9 @@ class HermesAdapterToolTests(unittest.TestCase):
         self.assertEqual(
             by_name["bigfeels_correct"]["required"],
             ["id", "revision", "content"],
+        )
+        self.assertEqual(
+            by_name["bigfeels_forget"]["required"], ["id", "plan_token"]
         )
         self.assertEqual(by_name["bigfeels_status"]["properties"], {})
         self.assertTrue(
@@ -137,7 +141,12 @@ class HermesAdapterToolTests(unittest.TestCase):
                 {"id": "memory-1", "revision": 2, "content": "Updated"},
                 "correct",
             ),
-            ("bigfeels_forget", {"id": "memory-1"}, "forget"),
+            ("bigfeels_forget_preview", {"id": "memory-1"}, "forget_preview"),
+            (
+                "bigfeels_forget",
+                {"id": "memory-1", "plan_token": "current-plan"},
+                "forget",
+            ),
             ("bigfeels_status", {}, "status"),
         ]
         for name, args, operation in cases:
@@ -147,6 +156,14 @@ class HermesAdapterToolTests(unittest.TestCase):
                 )
                 self.assertEqual(result, {"ok": operation})
         self.assertEqual([operation for operation, _ in calls], [item[2] for item in cases])
+
+        tokenless = json.loads(
+            handle_tool(
+                "bigfeels_forget", {"id": "memory-1"}, post,
+                ("owner:gordie",), "owner:gordie",
+            )
+        )
+        self.assertEqual(tokenless, {"error": {"message": "Invalid memory tool arguments."}})
 
     def test_invalid_calls_and_service_failures_do_not_echo_arguments_or_credentials(self) -> None:
         secret = "private-token-and-argument"

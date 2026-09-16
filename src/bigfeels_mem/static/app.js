@@ -52,10 +52,23 @@ function statusCard(label, value, variant = '') {
 function renderStatus(status) {
   const cards = byId('status-cards');
   const queue = status.queue || {};
+  const processing = status.processing || {};
+  const provider = status.providers?.extraction || 'not_configured';
+  const queueSummary = [
+    `${queue.pending ?? 0} pending`,
+    queue.failed ? `${queue.failed} failed` : '',
+    queue.processing ? `${queue.processing} active` : ''
+  ].filter(Boolean).join(' · ');
+  const nextWork = processing.next_retry_at
+    ? `retry ${formatTime(Number(processing.next_retry_at) * 1000)}`
+    : processing.oldest_pending_at
+      ? `oldest ${formatTime(processing.oldest_pending_at)}`
+      : 'idle';
   cards.replaceChildren(
     statusCard('Memories', status.memories ?? 0),
     statusCard('Evidence', status.evidence ?? 0),
-    statusCard('Queue', `${queue.pending ?? 0} pending`),
+    statusCard('Queue', queueSummary),
+    statusCard('Processing', `${provider} · ${nextWork}`),
     statusCard('Spaces', (status.spaces || []).join(', ') || 'None', 'spaces')
   );
 }
@@ -180,13 +193,53 @@ function openCorrection(memory) {
 }
 
 async function forgetRecord(memory) {
-  if (!window.confirm('Forget this record and all memories derived from its evidence? This cannot be undone from the UI.')) return;
   const generation = connectionGeneration;
   announce('');
   try {
-    await api('forget', {id: memory.id});
+    const preview = await api('forget_preview', {id: memory.id});
+    if (generation !== connectionGeneration) return;
+    const memories = Array.isArray(preview.memories) ? preview.memories : [];
+    const counts = preview.counts || {};
+    const lines = memories.map(item => `• ${item.content || item.id}`).join('\n');
+    const prompt = [
+      `Forget ${counts.memories ?? memories.length} memory record(s) and ${counts.evidence ?? 0} evidence record(s)?`,
+      '', lines, '', 'This cannot be undone from the UI.'
+    ].join('\n');
+    if (!preview.plan_token || !window.confirm(prompt)) return;
+    await api('forget', {id: memory.id, plan_token: preview.plan_token});
     if (generation !== connectionGeneration) return;
     announce('The record was forgotten.', true);
+    await refresh(generation);
+  } catch (error) {
+    if (generation !== connectionGeneration) return;
+    announce(error.message);
+  }
+}
+
+async function processPending() {
+  const generation = connectionGeneration;
+  announce('');
+  try {
+    const result = await api('process', {limit: 8});
+    if (generation !== connectionGeneration) return;
+    const status = result.status || {};
+    const queue = status.queue || {};
+    const processing = status.processing || {};
+    const provider = status.providers?.extraction || 'not_configured';
+    renderStatus(status);
+    if (result.processed) {
+      announce(`Processed ${result.processed} queued record(s).`, true);
+    } else if (provider === 'not_configured' || provider === 'credential_missing') {
+      announce(`Processed 0. Extraction is ${provider}; ${queue.pending ?? 0} record(s) remain pending.`);
+    } else if (queue.processing) {
+      announce('Processed 0. Another processing call is active; check status before retrying.');
+    } else if (processing.next_retry_at) {
+      announce('Processed 0. Pending work is waiting for its retry time.');
+    } else if (queue.pending) {
+      announce('Processed 0. No pending record was ready; check processing status.');
+    } else {
+      announce('Processed 0. The queue is empty.', true);
+    }
     await refresh(generation);
   } catch (error) {
     if (generation !== connectionGeneration) return;
@@ -235,8 +288,11 @@ disconnectButton.addEventListener('click', () => {
   byId('inspect-content').textContent = '';
   byId('correct-content').value = '';
   byId('correct-time').value = '';
+  if (byId('remember-content')) byId('remember-content').value = '';
   announce('');
-  for (const dialog of [byId('inspect-dialog'), byId('correct-dialog')]) {
+  for (const dialog of [
+    byId('inspect-dialog'), byId('correct-dialog'), byId('remember-dialog')
+  ].filter(Boolean)) {
     if (dialog.open) dialog.close();
   }
   byId('credential').focus();
@@ -247,6 +303,8 @@ byId('search-form').addEventListener('submit', (event) => {
   refresh();
 });
 byId('refresh').addEventListener('click', () => refresh());
+byId('process')?.addEventListener('click', processPending);
+byId('remember')?.addEventListener('click', () => byId('remember-dialog')?.showModal());
 
 for (const button of document.querySelectorAll('[data-close]')) {
   button.addEventListener('click', () => byId(button.dataset.close).close());
@@ -274,5 +332,27 @@ byId('correct-form').addEventListener('submit', async (event) => {
     if (generation !== connectionGeneration) return;
     announce(error.message);
     byId('correct-dialog').close();
+  }
+});
+
+byId('remember-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const generation = connectionGeneration;
+  const payload = {
+    space: byId('remember-space').value,
+    content: byId('remember-content').value,
+    kind: byId('remember-kind').value,
+    basis: byId('remember-basis').value
+  };
+  try {
+    await api('remember', payload);
+    if (generation !== connectionGeneration) return;
+    byId('remember-dialog').close();
+    byId('remember-content').value = '';
+    announce('The memory was saved.', true);
+    await refresh(generation);
+  } catch (error) {
+    if (generation !== connectionGeneration) return;
+    announce(error.message);
   }
 });

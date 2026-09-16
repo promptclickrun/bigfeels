@@ -1,6 +1,6 @@
 name: bigfeels
 version: 0.1.0
-description: "bigfeels local evidence memory through the native Hermes MemoryProvider lifecycle."
+description: "Optional Hermes adapter for the host-neutral bigfeels local memory engine."
 kind: exclusive
 requires_env: []
 hooks:

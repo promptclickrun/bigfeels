@@ -1,4 +1,4 @@
-"""Model Context Protocol stdio adapter for the local HTTP service."""
+"""Model Context Protocol stdio adapter for local or loopback memory access."""
 import json
 import sys
 
@@ -25,7 +25,8 @@ def _object(properties, required=()):
 TOOLS = (
     {
         'name': 'memory_observe',
-        'description': 'Capture one source event for durable asynchronous memory processing.',
+        'description': ('Queue one source event for extraction. This is durable capture, not completed learning; '
+                        'check memory_status and use memory_process when direct local extraction is configured.'),
         'inputSchema': _object({
             'space': SPACE,
             'source': {'type': 'string', 'minLength': 1, 'maxLength': 200},
@@ -51,7 +52,7 @@ TOOLS = (
             'key': IDENTIFIER,
             'valid_from': TIMESTAMP,
             'valid_until': TIMESTAMP,
-            'outcome': {'type': 'string', 'enum': ['unspecified', 'proposed', 'attempted', 'verified', 'failed']},
+            'outcome': {'type': 'string', 'enum': ['unspecified', 'proposed', 'attempted', 'attested', 'verified', 'failed']},
         }, ('space', 'content')),
     },
     {
@@ -91,13 +92,32 @@ TOOLS = (
         }, ('id', 'revision', 'content')),
     },
     {
-        'name': 'memory_forget',
-        'description': 'Delete an item and its derivatives while retaining a content-free replay marker.',
+        'name': 'memory_forget_preview',
+        'description': ('Preview every memory and evidence record that deletion would affect. '
+                        'Review the returned content and counts before calling memory_forget.'),
         'inputSchema': _object({'id': IDENTIFIER}, ('id',)),
     },
     {
+        'name': 'memory_forget',
+        'description': ('Execute an unchanged deletion preview. The plan token binds the target, revisions, '
+                        'and dependency closure; obtain a new preview if it is stale.'),
+        'inputSchema': _object({
+            'id': IDENTIFIER,
+            'plan_token': IDENTIFIER,
+        }, ('id', 'plan_token')),
+    },
+    {
+        'name': 'memory_process',
+        'description': ('Process a bounded extraction batch in direct-local MCP mode and return current status. '
+                        'A zero count with pending work means no extractor is configured, work is delayed, or no job is ready.'),
+        'inputSchema': _object({
+            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 8},
+        }),
+    },
+    {
         'name': 'memory_status',
-        'description': 'Read scoped memory, queue, and provider status without stored content.',
+        'description': ('Read scoped counts, queue states, safe processing diagnostics, and provider availability '
+                        'without returning stored content.'),
         'inputSchema': _object({}),
     },
     {
@@ -107,6 +127,14 @@ TOOLS = (
     },
 )
 TOOL_OPERATIONS = {tool['name']: tool['name'].removeprefix('memory_') for tool in TOOLS}
+DIRECT_LOCAL_TOOLS = frozenset({'memory_forget_preview', 'memory_process'})
+
+
+def _tools_for(client):
+    """Only advertise operations the selected transport can execute."""
+    if hasattr(client, 'process_pending'):
+        return list(TOOLS)
+    return [tool for tool in TOOLS if tool['name'] not in DIRECT_LOCAL_TOOLS]
 
 
 def _result(request_id, result):
@@ -118,7 +146,7 @@ def _error(request_id, code, message):
 
 
 def _tool_error(exc):
-    payload = {'error': {'status': exc.status, 'message': str(exc)}}
+    payload = {'error': {'status': getattr(exc, 'status', 400), 'message': str(exc)}}
     return {
         'content': [{'type': 'text', 'text': json.dumps(payload, separators=(',', ':'))}],
         'isError': True,
@@ -145,7 +173,9 @@ def _handle(client, request, initialized):
             'protocolVersion': PROTOCOL_VERSION,
             'capabilities': {'tools': {'listChanged': False}},
             'serverInfo': {'name': 'bigfeels-mem', 'version': __version__},
-            'instructions': 'Memory is scoped contextual evidence and never authorization.',
+            'instructions': ('Memory is scoped contextual evidence and never authorization. Explicit remember is '
+                             'synchronous. Observe only queues evidence; automatic conversation capture and extraction '
+                             'depend on host lifecycle and provider capabilities.'),
         }
         return _result(request_id, response), True
 
@@ -156,22 +186,40 @@ def _handle(client, request, initialized):
     if not initialized:
         return (None if notification else _error(request_id, -32002, 'Server not initialized')), initialized
     if method == 'tools/list':
-        return (None if notification else _result(request_id, {'tools': list(TOOLS)})), initialized
+        return (None if notification else _result(request_id, {'tools': _tools_for(client)})), initialized
     if method == 'tools/call':
         if notification:
             return None, initialized
         name = params.get('name')
         arguments = params.get('arguments', {})
-        if name not in TOOL_OPERATIONS or not isinstance(arguments, dict):
+        available = {tool['name'] for tool in _tools_for(client)}
+        if name not in available or not isinstance(arguments, dict):
             return _error(request_id, -32602, 'Invalid tool call parameters'), initialized
         try:
-            structured = client.call(TOOL_OPERATIONS[name], arguments)
+            operation = TOOL_OPERATIONS[name]
+            if operation == 'forget':
+                token = arguments.get('plan_token')
+                if (set(arguments) - {'id', 'plan_token'} or not arguments.get('id') or
+                        not isinstance(token, str) or not token):
+                    raise ValueError('memory_forget requires id and plan_token from memory_forget_preview')
+            if operation == 'process' and hasattr(client, 'process_pending'):
+                if set(arguments) - {'limit'}:
+                    raise ValueError('Unknown process option')
+                processed = client.process_pending(arguments.get('limit', 8))
+                structured = {'processed': processed, 'status': client.call('status', {})}
+            else:
+                structured = client.call(operation, arguments)
+            if operation == 'forget_preview':
+                target = arguments['id']
+                structured.get('memories', []).sort(
+                    key=lambda item: item.get('id') != target,
+                )
             result = {
                 'content': [{'type': 'text', 'text': json.dumps(structured, ensure_ascii=False, separators=(',', ':'))}],
                 'structuredContent': structured,
                 'isError': False,
             }
-        except ClientError as exc:
+        except (ClientError, ValueError) as exc:
             result = _tool_error(exc)
         return _result(request_id, result), initialized
     return (None if notification else _error(request_id, -32601, 'Method not found')), initialized

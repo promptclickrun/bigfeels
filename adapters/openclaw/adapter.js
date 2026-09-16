@@ -9,6 +9,9 @@ const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const DEFAULT_NATIVE_TIMEOUT_MS = 30_000;
 const MAX_NATIVE_TIMEOUT_MS = 120_000;
+const PROCESS_BATCH_SIZE = 8;
+const RETRY_POLL_MS = 1_000;
+const MAX_TIMER_DELAY_MS = 2_147_000_000;
 const DEFAULT_BRIDGE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "bridge.py");
 const CHILD_ENV_KEYS = [
   "PATH", "HOME", "USER", "USERNAME", "USERPROFILE", "LOGNAME",
@@ -182,9 +185,17 @@ export function createOpenClawAdapter({
   const config = validateConfig(rawConfig);
   const injectedTransport = typeof transport === "function" ? transport : postImpl;
   const runs = new Map();
+  const activeSessions = new Map();
+  const endedSessions = new Set();
+  const sessionGenerations = new Map();
   const activeOperations = new Set();
   let requestCounter = 0;
   let processingPromise;
+  let processingContext;
+  let retryTimer;
+  let retryDeadline = Number.POSITIVE_INFINITY;
+  let drainRequested = false;
+  let stopped = false;
 
   function eligible(ctx) {
     return Boolean(
@@ -203,6 +214,73 @@ export function createOpenClawAdapter({
   function rememberRun(runId, state) {
     runs.set(runId, state);
     if (runs.size > MAX_RUN_STATES) runs.delete(runs.keys().next().value);
+  }
+
+  function activateSession(ctx, { reopen = false } = {}) {
+    if (stopped || !eligible(ctx)) return false;
+    const wasEnded = endedSessions.has(ctx.sessionKey);
+    if (reopen) endedSessions.delete(ctx.sessionKey);
+    if (endedSessions.has(ctx.sessionKey)) return false;
+    if (!sessionGenerations.has(ctx.sessionKey)) sessionGenerations.set(ctx.sessionKey, 1);
+    else if (reopen && (wasEnded || !activeSessions.has(ctx.sessionKey))) {
+      sessionGenerations.set(ctx.sessionKey, sessionGenerations.get(ctx.sessionKey) + 1);
+    }
+    activeSessions.delete(ctx.sessionKey);
+    activeSessions.set(ctx.sessionKey, ctx);
+    return sessionGenerations.get(ctx.sessionKey);
+  }
+
+  function sessionIsActive(ctx, generation) {
+    return !stopped && activeSessions.has(ctx.sessionKey)
+      && !endedSessions.has(ctx.sessionKey)
+      && sessionGenerations.get(ctx.sessionKey) === generation;
+  }
+
+  function latestActiveContext() {
+    let current;
+    for (const value of activeSessions.values()) current = value;
+    return current;
+  }
+
+  function clearRetryTimer() {
+    if (retryTimer !== undefined) clearTimeout(retryTimer);
+    retryTimer = undefined;
+    retryDeadline = Number.POSITIVE_INFINITY;
+  }
+
+  function scheduleDrain(delayMs = 0) {
+    if (config.mode !== "native" || activeSessions.size === 0) return;
+    const boundedDelay = Math.max(0, Math.min(MAX_TIMER_DELAY_MS, Math.ceil(delayMs)));
+    const deadline = Date.now() + boundedDelay;
+    if (retryTimer !== undefined && retryDeadline <= deadline) return;
+    clearRetryTimer();
+    retryDeadline = deadline;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      retryDeadline = Number.POSITIVE_INFINITY;
+      const context = latestActiveContext();
+      if (context) void processPending(context);
+    }, boundedDelay);
+    retryTimer.unref?.();
+  }
+
+  function nextDrainDelay(status, processed) {
+    const queue = status && typeof status.queue === "object" && !Array.isArray(status.queue)
+      ? status.queue
+      : {};
+    const diagnostics = status && typeof status.processing === "object" && !Array.isArray(status.processing)
+      ? status.processing
+      : {};
+    const pending = Number.isInteger(queue.pending) && queue.pending > 0 ? queue.pending : 0;
+    const inFlight = Number.isInteger(queue.processing) && queue.processing > 0 ? queue.processing : 0;
+    if (pending === 0 && inFlight === 0) return undefined;
+
+    if (pending > 0 && typeof diagnostics.next_retry_at === "number" && Number.isFinite(diagnostics.next_retry_at)) {
+      const retryDelay = Math.ceil((diagnostics.next_retry_at * 1000) - Date.now());
+      if (retryDelay > 0) return Math.min(retryDelay, MAX_TIMER_DELAY_MS);
+    }
+    if (processed >= PROCESS_BATCH_SIZE) return 0;
+    return RETRY_POLL_MS;
   }
 
   async function readBoundedJson(response, operation) {
@@ -486,6 +564,7 @@ export function createOpenClawAdapter({
 
   async function beforePromptBuild(event, ctx) {
     if (!eligible(ctx) || typeof event?.prompt !== "string" || !event.prompt.trim()) return undefined;
+    if (!activateSession(ctx, { reopen: true })) return undefined;
     const state = { sessionKey: ctx.sessionKey, userContent: event.prompt, recalled: [] };
     rememberRun(ctx.runId, state);
     if (!config.autoRecall) return undefined;
@@ -515,26 +594,52 @@ export function createOpenClawAdapter({
   }
 
   async function processPending(ctx) {
-    if (config.mode !== "native" || !eligible(ctx)) return undefined;
-    if (processingPromise) return processingPromise;
+    if (config.mode !== "native" || !activateSession(ctx)) return undefined;
+    if (processingPromise) {
+      drainRequested = true;
+      return processingPromise;
+    }
+    clearRetryTimer();
+    drainRequested = false;
+    processingContext = ctx;
+    let nextDelay;
     processingPromise = (async () => {
       let processed = 0;
       // One bounded child handles one job. This keeps a slow subscription
       // completion from holding a child for all eight queued jobs.
-      for (let index = 0; index < 8; index += 1) {
+      for (let index = 0; index < PROCESS_BATCH_SIZE; index += 1) {
+        if (!activeSessions.has(ctx.sessionKey)) break;
         const result = await post("process", { limit: 1 }, ctx);
         const count = result && Number.isInteger(result.processed) ? result.processed : 0;
         processed += count;
         if (count < 1) break;
       }
+      if (activeSessions.has(ctx.sessionKey)) {
+        try {
+          const status = await post("status", {}, ctx);
+          nextDelay = nextDrainDelay(status, processed);
+        } catch {
+          // A full batch may have more immediately eligible work even if the
+          // diagnostic read failed. Short batches retry at a bounded cadence
+          // rather than stranding work behind a transient status failure.
+          nextDelay = processed >= PROCESS_BATCH_SIZE ? 0 : RETRY_POLL_MS;
+        }
+      }
       return { processed };
     })()
       .catch((error) => {
         logger.warn?.(`bigfeels extraction unavailable: ${error instanceof Error ? error.name : "request error"}`);
+        if (activeSessions.has(ctx.sessionKey)) nextDelay = RETRY_POLL_MS;
         return undefined;
       })
       .finally(() => {
         processingPromise = undefined;
+        processingContext = undefined;
+        if (activeSessions.size > 0) {
+          if (drainRequested) scheduleDrain(0);
+          else if (nextDelay !== undefined) scheduleDrain(nextDelay);
+        }
+        drainRequested = false;
       });
     return processingPromise;
   }
@@ -542,6 +647,8 @@ export function createOpenClawAdapter({
   async function agentEnd(event, ctx) {
     const runId = event?.runId ?? ctx?.runId;
     if (runId !== ctx?.runId || !eligible(ctx) || !config.autoCapture || event?.success !== true) return;
+    const captureGeneration = activateSession(ctx);
+    if (!captureGeneration) return;
     const state = runs.get(runId);
     const userContent = state?.userContent || latestRoleText(event.messages, "user");
     const assistantContent = latestRoleText(event.messages, "assistant");
@@ -597,19 +704,27 @@ export function createOpenClawAdapter({
     ];
     for (const observation of observations) {
       if (!observation.content) continue;
+      if (!sessionIsActive(ctx, captureGeneration)) return;
       try {
         await post("observe", observation, ctx);
+        if (!sessionIsActive(ctx, captureGeneration)) return;
       } catch (error) {
+        if (!sessionIsActive(ctx, captureGeneration)) return;
         logger.warn?.(`bigfeels capture unavailable: ${error instanceof Error ? error.name : "request error"}`);
       }
     }
     // Extraction is intentionally detached from the turn hook. A slow host
     // completion must never hold up the user's next turn.
-    void processPending(ctx);
+    if (sessionIsActive(ctx, captureGeneration)) void processPending(ctx);
   }
 
   function sessionEnd(event, ctx) {
     const sessionKey = ctx?.sessionKey ?? event?.sessionKey;
+    if (typeof sessionKey !== "string" || !sessionKey) return;
+    activeSessions.delete(sessionKey);
+    endedSessions.add(sessionKey);
+    sessionGenerations.set(sessionKey, (sessionGenerations.get(sessionKey) ?? 0) + 1);
+    if (endedSessions.size > MAX_RUN_STATES) endedSessions.delete(endedSessions.values().next().value);
     for (const operation of activeOperations) {
       if (operation.sessionKey === sessionKey) {
         operation.abort();
@@ -619,12 +734,33 @@ export function createOpenClawAdapter({
     for (const [runId, state] of runs) {
       if (state.sessionKey === sessionKey) runs.delete(runId);
     }
+    if (activeSessions.size === 0) {
+      clearRetryTimer();
+      drainRequested = false;
+    } else if (!processingPromise || processingContext?.sessionKey === sessionKey) {
+      scheduleDrain(0);
+    }
+  }
+
+  function shutdown() {
+    stopped = true;
+    clearRetryTimer();
+    activeSessions.clear();
+    endedSessions.clear();
+    sessionGenerations.clear();
+    drainRequested = false;
+    for (const operation of activeOperations) {
+      operation.abort();
+      operation.kill();
+    }
+    runs.clear();
   }
 
   return {
     beforePromptBuild,
     agentEnd,
     sessionEnd,
+    shutdown,
     post,
     processPending,
     spaces: [...config.spaces],
@@ -638,6 +774,7 @@ export function registerOpenClawSurface({ api, adapter, toolDefinitions }) {
   api.on("before_prompt_build", adapter.beforePromptBuild, { timeoutMs: hookTimeout });
   api.on("agent_end", adapter.agentEnd, { timeoutMs: hookTimeout });
   api.on("session_end", adapter.sessionEnd);
+  if (typeof adapter.shutdown === "function") api.on("gateway_stop", adapter.shutdown);
   for (const tool of toolDefinitions({
     post: adapter.post,
     spaces: adapter.spaces,

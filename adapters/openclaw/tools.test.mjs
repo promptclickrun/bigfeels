@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { toolDefinitions } from "./tools.js";
 
 
-test("definitions expose the six bounded native OpenClaw tools", () => {
+test("definitions expose the seven bounded native OpenClaw tools", () => {
   const tools = toolDefinitions({
     post: async () => ({}),
     spaces: ["owner:gordie"],
@@ -16,6 +16,7 @@ test("definitions expose the six bounded native OpenClaw tools", () => {
     "bigfeels_inspect",
     "bigfeels_remember",
     "bigfeels_correct",
+    "bigfeels_forget_preview",
     "bigfeels_forget",
     "bigfeels_status",
   ]);
@@ -27,6 +28,7 @@ test("definitions expose the six bounded native OpenClaw tools", () => {
   assert.ok("include_inactive" in schemas.bigfeels_search.properties);
   assert.deepEqual(schemas.bigfeels_remember.required, ["content"]);
   assert.deepEqual(schemas.bigfeels_correct.required, ["id", "revision", "content"]);
+  assert.deepEqual(schemas.bigfeels_forget.required, ["id", "plan_token"]);
   assert.deepEqual(schemas.bigfeels_status.properties, {});
   assert.ok(tools.every((tool) => tool.parameters.additionalProperties === false));
 });
@@ -116,7 +118,7 @@ test("each definition posts its matching service operation", async () => {
   const cases = [
     ["bigfeels_inspect", { id: "memory-1" }, "inspect"],
     ["bigfeels_correct", { id: "memory-1", revision: 2, content: "Updated" }, "correct"],
-    ["bigfeels_forget", { id: "memory-1" }, "forget"],
+    ["bigfeels_forget", { id: "memory-1", plan_token: "current-plan" }, "forget"],
     ["bigfeels_status", {}, "status"],
   ];
   for (const [name, params, operation] of cases) {

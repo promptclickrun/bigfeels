@@ -13,6 +13,7 @@ Post = Callable[[str, dict[str, Any]], Mapping[str, Any]]
 SPACE = {"type": "string", "minLength": 1, "maxLength": 200}
 CONTENT = {"type": "string", "minLength": 1, "maxLength": 16000}
 IDENTIFIER = {"type": "string", "minLength": 1, "maxLength": 500}
+PLAN_TOKEN = {"type": "string", "minLength": 1, "maxLength": 2000}
 TIMESTAMP = {"type": "string", "description": "ISO-8601 timestamp with timezone"}
 
 
@@ -94,6 +95,7 @@ _SCHEMAS = (
                         "unspecified",
                         "proposed",
                         "attempted",
+                        "attested",
                         "verified",
                         "failed",
                     ],
@@ -119,16 +121,28 @@ _SCHEMAS = (
         ),
     },
     {
-        "name": "bigfeels_forget",
+        "name": "bigfeels_forget_preview",
         "description": (
-            "Delete one scoped item and its derivatives by ID while retaining a content-free "
-            "replay marker."
+            "Preview every scoped memory and evidence item that forgetting an ID would delete. "
+            "Review the returned content and counts, then pass its plan_token to bigfeels_forget."
         ),
         "parameters": _object({"id": IDENTIFIER}, ("id",)),
     },
     {
+        "name": "bigfeels_forget",
+        "description": (
+            "Confirm a deletion preview by ID and plan_token. Stale or expired plans are rejected."
+        ),
+        "parameters": _object(
+            {"id": IDENTIFIER, "plan_token": PLAN_TOKEN}, ("id", "plan_token")
+        ),
+    },
+    {
         "name": "bigfeels_status",
-        "description": "Read scoped counts, queue status, and provider availability without stored content.",
+        "description": (
+            "Read scoped counts, queue state, backlog age, retry timing, safe processing failures, "
+            "and provider availability without stored content or provider error bodies."
+        ),
         "parameters": _object({}),
     },
 )
@@ -138,6 +152,7 @@ _OPERATIONS = {
     "bigfeels_inspect": "inspect",
     "bigfeels_remember": "remember",
     "bigfeels_correct": "correct",
+    "bigfeels_forget_preview": "forget_preview",
     "bigfeels_forget": "forget",
     "bigfeels_status": "status",
 }
@@ -196,6 +211,11 @@ def _scoped_payload(
             payload["space"] = write_space
         elif not isinstance(requested, str) or requested not in allowed:
             raise PermissionError
+    elif name == "bigfeels_forget":
+        if not isinstance(payload.get("id"), str) or not isinstance(payload.get("plan_token"), str):
+            return None
+        if not payload["id"] or not payload["plan_token"]:
+            return None
     return payload
 
 
