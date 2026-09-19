@@ -16,6 +16,18 @@ class Page(HTMLParser):
 p=Page();text=(root/'index.html').read_text();p.feed(text)
 assert p.lang=='en' and p.h1==1
 assert len(p.ids)==len(set(p.ids)), 'Duplicate IDs'
+# Responsive CSS can hide editorial line breaks; words must stay separated.
+expected_headings = {
+    'evidence-title': 'Keep the source close.',
+    'interfaces-title': 'Fits the tools you use.',
+    'boundaries-title': 'Know what stays local.',
+    'install-title': 'Give your agent something to remember.',
+}
+for heading_id, expected in expected_headings.items():
+    heading = re.search(rf'<h2 id="{heading_id}">(.*?)</h2>', text, re.S)
+    assert heading, f'Missing heading: {heading_id}'
+    without_breaks = re.sub(r'<[^>]+>', '', heading.group(1))
+    assert ' '.join(without_breaks.split()) == expected, f'Joined heading words: {heading_id}'
 for link in p.links:
     assert link and link!='#', 'Placeholder link'
     if link.startswith('#'):assert link[1:] in p.ids,link
