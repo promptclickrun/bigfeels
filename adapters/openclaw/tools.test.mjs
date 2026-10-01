@@ -33,6 +33,39 @@ test("definitions expose the seven bounded native OpenClaw tools", () => {
   assert.ok(tools.every((tool) => tool.parameters.additionalProperties === false));
 });
 
+test("remember documents attested requirements and treats verified as legacy only", async () => {
+  const calls = [];
+  const [remember] = toolDefinitions({
+    post: async (operation, payload) => {
+      calls.push({ operation, payload });
+      return { ok: true };
+    },
+    spaces: ["owner:gordie"],
+    writeSpace: "owner:gordie",
+  }).filter((tool) => tool.name === "bigfeels_remember");
+
+  // Agents that followed "use verified outcome" were rejected by the store (#12).
+  assert.doesNotMatch(remember.description, /\buse verified\b/i);
+  assert.match(remember.description, /leave outcome unset/);
+  for (const requirement of ["attested", "basis observed", "evidence_ids", "tool observation"]) {
+    assert.ok(remember.description.includes(requirement), requirement);
+  }
+  assert.match(remember.description, /legacy value verified .*stored as attested/);
+  assert.deepEqual(remember.parameters.properties.outcome.enum, [
+    "unspecified",
+    "proposed",
+    "attempted",
+    "attested",
+    "failed",
+  ]);
+
+  // Older callers still send "verified"; the adapter forwards it for the store to relabel.
+  const legacy = { content: "Deploy succeeded", basis: "observed", outcome: "verified", evidence_ids: ["evidence-1"] };
+  const result = await remember.execute("call-legacy", legacy);
+  assert.deepEqual(result.details, { ok: true });
+  assert.deepEqual(calls, [{ operation: "remember", payload: { ...legacy, space: "owner:gordie" } }]);
+});
+
 test("execute applies configured search and remember defaults and returns native content", async () => {
   const calls = [];
   const post = async (operation, payload) => {
