@@ -183,13 +183,38 @@ def _error(message: str, *, code: str | None = None) -> str:
     return json.dumps({"error": error}, separators=(",", ":"))
 
 
-def _request_error(name: str, error: Exception) -> str:
+def _argument_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Mapping):
+        return [s for item in value.values() for s in _argument_strings(item)]
+    if isinstance(value, (list, tuple)):
+        return [s for item in value for s in _argument_strings(item)]
+    return []
+
+
+def _request_error(name: str, error: Exception, args: Mapping[str, Any] | None = None) -> str:
     status = getattr(error, "status", None)
     if name in _ID_OPERATIONS and type(status) is int and status in {403, 404}:
         return _error(
             "Memory item was not found or is not accessible.",
             code="not_found",
         )
+    # A 400 from the store names the rule the call broke ("Caller-attested outcomes
+    # require source evidence"). Pass it on so the agent can fix the call instead of
+    # retrying blind, unless it would echo an argument value back.
+    message = str(error)
+    if (
+        type(status) is int
+        and status == 400
+        and 0 < len(message) <= 300
+        and message.isprintable()
+        and not any(
+            len(value) >= 4 and value in message
+            for value in _argument_strings(args or {})
+        )
+    ):
+        return _error(message.rstrip(".") + ".", code="invalid_request")
     return _error("Memory service request failed.")
 
 
@@ -266,7 +291,7 @@ def handle_tool(
             raise TypeError
         return json.dumps(dict(result), ensure_ascii=False, separators=(",", ":"))
     except Exception as error:
-        return _request_error(name, error)
+        return _request_error(name, error, args)
 
 
 __all__ = ["handle_tool", "tool_schemas"]
