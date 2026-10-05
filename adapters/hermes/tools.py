@@ -172,6 +172,35 @@ _ID_OPERATIONS = frozenset(
 _PROPERTIES = {
     schema["name"]: frozenset(schema["parameters"]["properties"]) for schema in _SCHEMAS
 }
+# Only fixed store/client validation text is safe to expose. Substring redaction
+# both misses partial secrets and hides rules containing enum values like attested.
+_VALIDATION_MESSAGES = frozenset(
+    {
+        "Caller-attested outcomes require an observed basis",
+        "Caller-attested outcomes require source evidence",
+        "Caller-attested outcomes require a tool observation",
+        "Timestamp must be an ISO-8601 string",
+        "Timestamp requires a timezone",
+        "valid_until must follow valid_from",
+        "Evidence cannot cross memory spaces",
+        "Correction time must follow original validity",
+        "Invalid kind",
+        "Invalid basis",
+        "Invalid outcome",
+        "evidence_ids must be a list of strings",
+        "spaces must be a list of strings",
+        "query must be a string up to 8000 characters",
+        "budget must be between 1 and 32000",
+        "include_inactive must be boolean",
+        "id must be a nonempty string up to 200 characters",
+        "space must be a nonempty string up to 200 characters",
+        "content must be a nonempty string up to 16000 characters",
+        "key must be a nonempty string up to 500 characters",
+        "plan_token must be a nonempty string up to 200 characters",
+        "Request must be an object",
+        "Request is not valid JSON",
+    }
+)
 
 
 def tool_schemas() -> list[dict[str, Any]]:
@@ -187,38 +216,17 @@ def _error(message: str, *, code: str | None = None) -> str:
     return json.dumps({"error": error}, separators=(",", ":"))
 
 
-def _argument_strings(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, Mapping):
-        return [s for item in value.values() for s in _argument_strings(item)]
-    if isinstance(value, (list, tuple)):
-        return [s for item in value for s in _argument_strings(item)]
-    return []
-
-
-def _request_error(name: str, error: Exception, args: Mapping[str, Any] | None = None) -> str:
+def _request_error(name: str, error: Exception) -> str:
     status = getattr(error, "status", None)
     if name in _ID_OPERATIONS and type(status) is int and status in {403, 404}:
         return _error(
             "Memory item was not found or is not accessible.",
             code="not_found",
         )
-    # A 400 from the store names the rule the call broke ("Caller-attested outcomes
-    # require source evidence"). Pass it on so the agent can fix the call instead of
-    # retrying blind, unless it would echo an argument value back.
-    message = str(error)
-    if (
-        type(status) is int
-        and status == 400
-        and 0 < len(message) <= 300
-        and message.isprintable()
-        and not any(
-            len(value) >= 4 and value in message
-            for value in _argument_strings(args or {})
-        )
-    ):
-        return _error(message.rstrip(".") + ".", code="invalid_request")
+    if type(status) is int and status == 400:
+        message = str(error)
+        if message in _VALIDATION_MESSAGES:
+            return _error(message + ".", code="invalid_request")
     return _error("Memory service request failed.")
 
 
@@ -295,7 +303,7 @@ def handle_tool(
             raise TypeError
         return json.dumps(dict(result), ensure_ascii=False, separators=(",", ":"))
     except Exception as error:
-        return _request_error(name, error, args)
+        return _request_error(name, error)
 
 
 __all__ = ["handle_tool", "tool_schemas"]

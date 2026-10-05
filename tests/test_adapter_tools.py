@@ -251,18 +251,106 @@ class HermesAdapterToolTests(unittest.TestCase):
         client = LocalClient(tmp.name, spaces=("owner",), auto_process=False)
         self.addCleanup(client.close)
 
-        result = json.loads(
-            handle_tool(
-                "bigfeels_remember",
-                {"content": "Deploy finished.", "basis": "observed", "outcome": "verified"},
-                client.call,
-                ("owner",),
-                "owner",
-            )
+        evidence = client.call(
+            "observe",
+            {
+                "space": "owner",
+                "source": "synthetic-adapter",
+                "source_event_id": "1",
+                "session_id": "adapter",
+                "speaker": "user",
+                "content": "The deploy finished.",
+            },
         )
+        for outcome in ("verified", "attested"):
+            for extra, rule in (
+                ({}, "an observed basis"),
+                ({"basis": "observed"}, "source evidence"),
+                (
+                    {"basis": "observed", "evidence_ids": [evidence["id"]]},
+                    "a tool observation",
+                ),
+            ):
+                with self.subTest(outcome=outcome, rule=rule):
+                    result = json.loads(
+                        handle_tool(
+                            "bigfeels_remember",
+                            {"content": "Deploy finished.", "outcome": outcome, **extra},
+                            client.call,
+                            ("owner",),
+                            "owner",
+                        )
+                    )
+                    self.assertEqual(
+                        result,
+                        {"error": {
+                            "code": "invalid_request",
+                            "message": f"Caller-attested outcomes require {rule}.",
+                        }},
+                    )
 
-        self.assertEqual(result["error"]["code"], "invalid_request")
-        self.assertIn("require source evidence", result["error"]["message"])
+    def test_field_validation_errors_reach_the_agent(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        client = LocalClient(tmp.name, spaces=("owner",), auto_process=False)
+        self.addCleanup(client.close)
+
+        for tool, args, message in (
+            ("bigfeels_remember", {"content": ""}, "content must be a nonempty string up to 16000 characters"),
+            ("bigfeels_remember", {"content": "A fact.", "kind": "other"}, "Invalid kind"),
+            ("bigfeels_remember", {"content": "A fact.", "basis": "other"}, "Invalid basis"),
+            ("bigfeels_remember", {"content": "A fact.", "outcome": "other"}, "Invalid outcome"),
+            ("bigfeels_remember", {"content": "A fact.", "evidence_ids": "bad"}, "evidence_ids must be a list of strings"),
+            ("bigfeels_search", {"query": 123}, "query must be a string up to 8000 characters"),
+            ("bigfeels_search", {"query": "", "budget": 0}, "budget must be between 1 and 32000"),
+            ("bigfeels_search", {"query": "", "include_inactive": "yes"}, "include_inactive must be boolean"),
+            ("bigfeels_inspect", {"id": ""}, "id must be a nonempty string up to 200 characters"),
+        ):
+            with self.subTest(tool=tool, message=message):
+                result = handle_tool(tool, args, client.call, ("owner",), "owner")
+                self.assertEqual(
+                    json.loads(result),
+                    {"error": {"code": "invalid_request", "message": message + "."}},
+                )
+
+    def test_unrecognized_validation_errors_remain_private(self) -> None:
+        secret = uuid.uuid4().hex
+        for message in (
+            f"Invalid credential {uuid.uuid4().hex}",
+            f"Invalid id {secret[:8]}",
+            "Invalid id abc",
+            "Caller-attested outcomes require source evidence\n",
+            "Caller-attested outcomes require source evidence " + secret,
+            "",
+            "x" * 301,
+        ):
+            with self.subTest(message=message):
+                def post(_operation: str, _payload: dict[str, object]) -> dict[str, object]:
+                    raise ClientError(message, 400)
+
+                result = handle_tool(
+                    "bigfeels_inspect", {"id": secret}, post, ("owner",), "owner",
+                )
+                self.assertEqual(
+                    json.loads(result),
+                    {"error": {"message": "Memory service request failed."}},
+                )
+
+    def test_validation_messages_are_only_exposed_for_integer_400_status(self) -> None:
+        for status in (401, 403, 404, 409, 500, "400", 400.0, None):
+            with self.subTest(status=status):
+                def post(_operation: str, _payload: dict[str, object]) -> dict[str, object]:
+                    raise ClientError("Caller-attested outcomes require source evidence", status)
+
+                result = handle_tool(
+                    "bigfeels_remember", {"content": "A fact."}, post, ("owner",), "owner",
+                )
+                expected = (
+                    {"code": "not_found", "message": "Memory item was not found or is not accessible."}
+                    if status in (403, 404)
+                    else {"message": "Memory service request failed."}
+                )
+                self.assertEqual(json.loads(result), {"error": expected})
 
     def test_validation_errors_never_echo_argument_values(self) -> None:
         secret = uuid.uuid4().hex
