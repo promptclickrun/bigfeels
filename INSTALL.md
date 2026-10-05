@@ -75,12 +75,17 @@ For a remote endpoint, set the named key environment variable and explicitly add
 The root `plugin.yaml` and `__init__.py` expose the adapter expected by Hermes. If you explicitly want native Hermes lifecycle capture, use Hermes's official plugin installer with the supplied repository URL, then select the provider:
 
 ```sh
-hermes plugins install REPO_URL --enable
+hermes plugins install promptclickrun/bigfeels --enable
 hermes memory setup bigfeels
 hermes memory status
 ```
 
 Start a new Hermes session for provider activation. Read [adapters/hermes/README.md](adapters/hermes/README.md) before configuring optional spaces. Do not migrate, delete, or overwrite another provider's data as part of installation.
+
+To migrate an existing default-profile Mnemosyne provider, use the separate
+[v1.3 import and rollback procedure](docs/mnemosyne-migration.md). The local
+`import-mnemosyne` command supports a dry-run and a private verification receipt;
+it does not activate a Hermes provider.
 
 ## Optional OpenClaw adapter
 
