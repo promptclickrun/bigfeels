@@ -66,6 +66,45 @@ class HermesNativeTests(unittest.TestCase):
             self.assertIsNone(provider._client)
             provider.shutdown()
 
+    def test_memory_namespace_preserves_existing_store_and_overrides_legacy_config(self) -> None:
+        plugin = importlib.import_module("adapters.hermes")
+        local = importlib.import_module("bigfeels_mem.local")
+        home = Path(self.temp.name)
+        selected = home / "selected"
+        seed = local.LocalClient(data_dir=selected)
+        saved = seed.call("remember", {"content": "Synthetic migration checkpoint.", "space": "owner"})
+        seed.close()
+        (home / "config.yaml").write_text(json.dumps({
+            "plugins": {"bigfeels": {"data_dir": str(home / "legacy"), "budget": 900}},
+            "memory": {"bigfeels": {"path": "${HERMES_HOME}/selected", "budget": 1200}},
+        }))
+        with patch.dict(os.environ, {}, clear=True):
+            provider = plugin.BigfeelsMemoryProvider()
+            self.addCleanup(provider.shutdown)
+            provider.initialize("migration-check", hermes_home=str(home))
+        found = json.loads(provider.handle_tool_call("bigfeels_inspect", {"id": saved["id"]}))
+        self.assertEqual(found.get("content"), "Synthetic migration checkpoint.")
+        self.assertEqual(provider._config.budget, 1200)
+        self.assertFalse((home / "legacy").exists())
+
+    def test_default_native_stores_are_isolated_per_hermes_profile(self) -> None:
+        plugin = importlib.import_module("adapters.hermes")
+        local = importlib.import_module("bigfeels_mem.local")
+        home = Path(self.temp.name)
+        with (patch.dict(os.environ, {}, clear=True),
+              patch.object(local, "default_data_dir", return_value=home / "shared")):
+            first = plugin.BigfeelsMemoryProvider()
+            second = plugin.BigfeelsMemoryProvider()
+            self.addCleanup(first.shutdown)
+            self.addCleanup(second.shutdown)
+            first.initialize("one", hermes_home=str(home / "one"))
+            saved = json.loads(first.handle_tool_call("bigfeels_remember", {
+                "content": "Synthetic private profile memory."}))
+            second.initialize("two", hermes_home=str(home / "two"))
+            found = json.loads(second.handle_tool_call("bigfeels_inspect", {"id": saved["id"]}))
+            self.assertEqual(found.get("error", {}).get("code"), "not_found")
+            self.assertFalse((home / "shared").exists())
+
     def test_native_capture_and_tools_use_local_client_without_http(self) -> None:
         plugin = importlib.import_module("adapters.hermes")
         provider = plugin.BigfeelsMemoryProvider(
