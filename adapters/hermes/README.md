@@ -50,7 +50,9 @@ evidence through it. `path` defaults to `$HERMES_HOME/bigfeels` when Hermes supp
 the profile home. Outside a Hermes profile, the engine uses its normal default.
 The older `plugins.bigfeels.data_dir` setting remains supported;
 `memory.bigfeels` overrides matching legacy settings and `path` takes precedence
-over `data_dir`. Explicit constructor settings still take precedence over both.
+over `data_dir`. An explicitly configured `path` must be a nonempty string;
+null and blank values fail initialization instead of selecting another store.
+Explicit constructor settings still take precedence over both.
 
 Before updating an existing shared-store installation, pin its current directory
 with `memory.bigfeels.path` to keep using it. Updating does not move or reimport

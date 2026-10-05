@@ -156,10 +156,12 @@ def _host_plugin_config(hermes_home: object = None) -> dict[str, Any]:
     memory = config.get("memory")
     if isinstance(memory, dict) and isinstance(memory.get("bigfeels"), dict):
         provider_values = dict(memory["bigfeels"])
-        path = provider_values.pop("path", None)
+        if "path" in provider_values:
+            path = provider_values.pop("path")
+            if not isinstance(path, str) or not path.strip():
+                raise ValueError("Hermes memory.bigfeels.path must be a nonempty string")
+            provider_values["data_dir"] = path
         values.update(provider_values)
-        if path is not None:
-            values["data_dir"] = path
     return values
 
 

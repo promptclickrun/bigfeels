@@ -87,6 +87,27 @@ class HermesNativeTests(unittest.TestCase):
         self.assertEqual(provider._config.budget, 1200)
         self.assertFalse((home / "legacy").exists())
 
+    def test_invalid_memory_path_never_falls_back_to_another_store(self) -> None:
+        plugin = importlib.import_module("adapters.hermes")
+        local = importlib.import_module("bigfeels_mem.local")
+        for index, path in enumerate((None, "", "   ", 7)):
+            with self.subTest(path=path):
+                home = Path(self.temp.name) / str(index)
+                home.mkdir()
+                (home / "config.yaml").write_text(json.dumps({
+                    "plugins": {"bigfeels": {"data_dir": str(home / "legacy")}},
+                    "memory": {"bigfeels": {"path": path}},
+                }))
+                with (patch.dict(os.environ, {}, clear=True),
+                      patch.object(local, "default_data_dir", return_value=home / "shared")):
+                    provider = plugin.BigfeelsMemoryProvider()
+                    self.addCleanup(provider.shutdown)
+                    with self.assertRaises(ValueError):
+                        provider.initialize("invalid-path", hermes_home=str(home))
+                self.assertFalse((home / "legacy").exists())
+                self.assertFalse((home / "shared").exists())
+                self.assertFalse((home / "bigfeels").exists())
+
     def test_default_native_stores_are_isolated_per_hermes_profile(self) -> None:
         plugin = importlib.import_module("adapters.hermes")
         local = importlib.import_module("bigfeels_mem.local")
