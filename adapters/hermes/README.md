@@ -14,19 +14,20 @@ For an existing Mnemosyne provider, follow the separate
 not switch profiles. Set the intended `HERMES_HOME` explicitly and preserve any
 existing local plugin changes before installation or update.
 
-Setup has no required fields. The provider opens the shared local bigfeels
-store in the primary Hermes process and defaults to the `owner` space.
+Setup has no required fields. The provider opens the profile-local bigfeels
+store at `$HERMES_HOME/bigfeels` in the primary Hermes process and defaults to
+the `owner` space.
 Automatic turn capture is off: `capture_roles` defaults to an empty list, and
 `auto_extract` defaults to `false`. Explicit `bigfeels_remember` and search
 operations remain available without enabling either setting. There is no
 browser pairing, separate token, memory service, or model-provider key to copy.
 
-Optional profile settings live under `plugins.bigfeels` in Hermes config:
+Optional profile settings live under `memory.bigfeels` in Hermes config:
 
 ```yaml
-plugins:
+memory:
   bigfeels:
-    data_dir: ~/Library/Application Support/bigfeels-mem
+    path: ${HERMES_HOME}/bigfeels
     project_spaces: [project:app]
     write_space: project:app
     capture_roles: [user]
@@ -45,7 +46,18 @@ without extraction jobs, so a later worker cannot submit those captures.
 It must be `true` before queued evidence
 can be submitted to Hermes's host-model extraction lane. When capture is
 disabled, the adapter does not attach that extractor or process older queued
-evidence through it. `data_dir` uses the normal bigfeels default when omitted.
+evidence through it. `path` defaults to `$HERMES_HOME/bigfeels` when Hermes supplies
+the profile home. Outside a Hermes profile, the engine uses its normal default.
+The older `plugins.bigfeels.data_dir` setting remains supported;
+`memory.bigfeels` overrides matching legacy settings and `path` takes precedence
+over `data_dir`. An explicitly configured `path` must be a nonempty string;
+null and blank values fail initialization instead of selecting another store.
+Explicit constructor settings still take precedence over both.
+
+Before updating an existing shared-store installation, pin its current directory
+with `memory.bigfeels.path` to keep using it. Updating does not move or reimport
+any data. Separate profile defaults prevent accidental sharing; deliberate
+sharing requires explicitly selecting the same directory and spaces.
 `project_spaces` are explicitly added to the owner scope, and approved capture
 goes to `write_space` (the owner space by default). Embeddings remain an
 optional advanced service configuration and are not implied by Hermes model

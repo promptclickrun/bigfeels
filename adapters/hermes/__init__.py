@@ -149,11 +149,20 @@ def _host_plugin_config(hermes_home: object = None) -> dict[str, Any]:
         return {}
     if not isinstance(config, dict):
         return {}
+    values: dict[str, Any] = {}
     plugins = config.get("plugins")
-    if not isinstance(plugins, dict):
-        return {}
-    values = plugins.get("bigfeels")
-    return dict(values) if isinstance(values, dict) else {}
+    if isinstance(plugins, dict) and isinstance(plugins.get("bigfeels"), dict):
+        values.update(plugins["bigfeels"])
+    memory = config.get("memory")
+    if isinstance(memory, dict) and isinstance(memory.get("bigfeels"), dict):
+        provider_values = dict(memory["bigfeels"])
+        if "path" in provider_values:
+            path = provider_values.pop("path")
+            if not isinstance(path, str) or not path.strip():
+                raise ValueError("Hermes memory.bigfeels.path must be a nonempty string")
+            provider_values["data_dir"] = path
+        values.update(provider_values)
+    return values
 
 
 def _native_config(values: dict[str, Any] | None = None) -> NativeConfig:
@@ -372,6 +381,8 @@ class BigfeelsMemoryProvider(MemoryProvider):
                 local_cls = _import_core("bigfeels_mem.local").LocalClient
                 data_dir = config.data_dir
                 hermes_home = kwargs.get("hermes_home")
+                if data_dir is None and isinstance(hermes_home, str) and hermes_home.strip():
+                    data_dir = str(Path(hermes_home).expanduser() / "bigfeels")
                 if isinstance(data_dir, str) and isinstance(hermes_home, str) and hermes_home:
                     data_dir = data_dir.replace("$HERMES_HOME", str(hermes_home or ""))
                     data_dir = data_dir.replace("${HERMES_HOME}", str(hermes_home or ""))
@@ -751,7 +762,7 @@ class BigfeelsMemoryProvider(MemoryProvider):
 
     def get_config_schema(self) -> list[dict[str, Any]]:
         # Native mode inherits Hermes's active model and OS-scoped storage.
-        # Optional values are read from plugins.bigfeels when explicitly set;
+        # Optional values are read from memory.bigfeels or plugins.bigfeels;
         # the generic setup command should therefore only activate the plugin.
         return []
 

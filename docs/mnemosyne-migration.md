@@ -4,6 +4,37 @@
 
 The migration is one-time. The active **default Hermes profile** is the rollout boundary. Other profiles must be backed up and left on their existing providers. Do not assume a shell's current profile is the default.
 
+## Reconcile an existing cutover first
+
+Read the selected profile's current `memory.provider` and both supported bigfeels
+configuration locations before importing. `memory.bigfeels.path` selects the
+store; the older `plugins.bigfeels.data_dir` remains a compatibility input.
+The memory namespace wins when both are present. With no explicit directory,
+Hermes uses `$HERMES_HOME/bigfeels`; pin an existing shared directory before an
+upgrade if that is the intended store.
+
+If bigfeels is already active, preserve its database and any local plugin edits.
+An existing import ledger is evidence of a prior migration, not permission to
+replay it. Later corrections, deletions, and new memories must survive. The
+current importer deliberately refuses a nonempty destination that differs from
+its exact plan. Do not replace an active store with a fresh import or resurrect
+missing records to make counts match. Verify the original source, private
+receipt or ledger, surviving mapped records, and deletion history first; any
+reconciliation of divergent history needs its own explicit decision.
+
+Compare resolved database paths across profiles before touching the live store.
+Different profile configurations can still select the same physical database.
+In that case, a database migration, maintenance run, or provider update may
+change behavior for other profiles too. Validate against a private copy first;
+isolating or updating an intentionally shared deployment is a separate rollout
+choice, not a default-profile-only cutover.
+
+Back up each profile's configuration and memory stores, using SQLite's read-only
+backup API for live databases. Keep those backups, exports, receipts, and local
+plugin patches outside the repository in an owner-only directory. Public
+verification notes should contain synthetic examples and aggregate outcomes,
+never private paths, source IDs, content, or configuration dumps.
+
 ## Prepare the source and rollback point
 
 1. Identify the default profile's actual home, current provider configuration, plugin directory, and Mnemosyne database. Record any environment overrides. Back up the other profiles without changing them.
@@ -69,12 +100,12 @@ The repository root already contains the supported Hermes user-plugin manifest a
 HERMES_HOME=/absolute/default-profile-home hermes plugins install promptclickrun/bigfeels --enable
 ```
 
-For an existing installation, preserve its backup/local changes and use Hermes's normal update flow after reviewing those differences. Configure **only that profile's** `plugins.bigfeels` settings before activating:
+For an existing installation, preserve its backup/local changes and use Hermes's normal update flow after reviewing those differences. Configure **only that profile's** `memory.bigfeels` settings before activating:
 
 ```yaml
-plugins:
+memory:
   bigfeels:
-    data_dir: /private/bigfeels-default-import
+    path: /private/bigfeels-default-import
     capture_roles: []
     auto_extract: false
     # Add approved session/owner spaces from the receipt only when needed:
