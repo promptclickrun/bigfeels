@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 import uuid
+from pathlib import Path
 
 # Installs the minimal host ABC only when the optional Hermes checkout is absent.
 import test_adapters  # noqa: F401
@@ -11,6 +13,7 @@ import test_adapters  # noqa: F401
 from adapters.hermes.tools import handle_tool, tool_schemas
 from bigfeels_mem.client import ClientError
 from bigfeels_mem.local import LocalClient
+from bigfeels_mem.store import Principal, Store
 
 
 class HermesAdapterToolTests(unittest.TestCase):
@@ -51,6 +54,78 @@ class HermesAdapterToolTests(unittest.TestCase):
         self.assertTrue(
             all(schema["parameters"]["additionalProperties"] is False for schema in schemas)
         )
+
+    def test_remember_description_documents_attested_rules_and_not_verified(self) -> None:
+        remember = next(
+            schema for schema in tool_schemas() if schema["name"] == "bigfeels_remember"
+        )
+        description = remember["description"]
+
+        # Agents that followed "use verified outcome" were rejected by the store (#12).
+        self.assertNotRegex(description, re.compile(r"\buse verified\b", re.IGNORECASE))
+        self.assertIn("leave outcome unset", description)
+        for requirement in ("attested", "basis observed", "evidence_ids", "tool observation"):
+            self.assertIn(requirement, description)
+        self.assertRegex(description, r"legacy value verified .*stored as attested")
+
+        outcomes = remember["parameters"]["properties"]["outcome"]["enum"]
+        self.assertEqual(
+            outcomes, ["unspecified", "proposed", "attempted", "attested", "failed"]
+        )
+
+    def test_legacy_verified_outcome_still_reaches_the_store_as_attested(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = Store(Path(temp) / "memory.sqlite")
+            principal = Principal("adapter-tools", ("owner",))
+
+            def post(operation: str, payload: dict[str, object]) -> dict[str, object]:
+                return store.dispatch(principal, operation, payload)
+
+            evidence = store.dispatch(
+                principal,
+                "observe",
+                {
+                    "space": "owner",
+                    "source": "synthetic-adapter",
+                    "source_event_id": "1",
+                    "session_id": "adapter",
+                    "speaker": "tool",
+                    "content": "deploy: exit 0",
+                },
+            )
+
+            def remember(content: str, **extra: object) -> dict[str, object]:
+                return json.loads(
+                    handle_tool(
+                        "bigfeels_remember",
+                        {"content": content, **extra},
+                        post,
+                        ("owner",),
+                        "owner",
+                    )
+                )
+
+            legacy = remember(
+                "The deploy succeeded.",
+                basis="observed",
+                outcome="verified",
+                evidence_ids=[evidence["id"]],
+            )
+            attested = remember(
+                "The staging deploy succeeded.",
+                basis="observed",
+                outcome="attested",
+                evidence_ids=[evidence["id"]],
+            )
+            missing_evidence = remember(
+                "The prod deploy succeeded.", basis="observed", outcome="attested"
+            )
+            plain = remember("Deploys run from the release branch.")
+
+        self.assertEqual(legacy["outcome"], "attested")
+        self.assertEqual(attested["outcome"], "attested")
+        self.assertIn("error", missing_evidence)
+        self.assertEqual(plain["outcome"], "unspecified")
 
     def test_search_and_remember_apply_configured_scope_defaults_without_mutating_args(self) -> None:
         calls: list[tuple[str, dict[str, object]]] = []
@@ -201,6 +276,31 @@ class HermesAdapterToolTests(unittest.TestCase):
 
         self.assertNotIn(secret, result)
         self.assertEqual(json.loads(result), {"error": {"message": "Memory service request failed."}})
+
+    def test_unknown_validation_errors_do_not_disclose_service_secrets(self) -> None:
+        secret = uuid.uuid4().hex
+        for message in (f"Backend credential {secret}", "Invalid id abc", "Invalid revision 1234"):
+            with self.subTest(message=message):
+                def rejecting_post(_operation, _payload):
+                    raise ClientError(message, 400)
+
+                result = handle_tool(
+                    "bigfeels_inspect", {"id": "abc"}, rejecting_post, ("owner",), "owner",
+                )
+                self.assertEqual(json.loads(result), {"error": {"message": "Memory service request failed."}})
+
+    def test_attested_validation_is_actionable_even_when_rule_names_an_argument(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            client = LocalClient(temp, spaces=("owner",), auto_process=False)
+            self.addCleanup(client.close)
+            result = json.loads(handle_tool(
+                "bigfeels_remember", {"content": "Deploy finished.", "outcome": "attested"},
+                client.call, ("owner",), "owner",
+            ))
+            self.assertEqual(result["error"], {
+                "code": "invalid_request",
+                "message": "Caller-attested outcomes require an observed basis.",
+            })
 
     def test_invalid_calls_and_service_failures_do_not_echo_arguments_or_credentials(self) -> None:
         # Generate a synthetic marker; never ship a credential-shaped literal.

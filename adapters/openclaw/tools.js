@@ -37,7 +37,7 @@ const TOOL_SPECS = [
   {
     name: "bigfeels_remember",
     label: "Bigfeels Remember",
-    description: "Explicitly save a durable fact, preference, decision, episode, procedure, or task. Use verified outcome only with observed tool evidence.",
+    description: "Explicitly save a durable fact, preference, decision, episode, procedure, or task. Most saves should leave outcome unset. Outcome attested requires basis observed and evidence_ids that include a recorded tool observation; a save missing any of these is rejected. The legacy value verified is accepted only for v1 compatibility and is stored as attested under the same rules.",
     operation: "remember",
     parameters: objectSchema({
       space: SPACE,
@@ -51,9 +51,11 @@ const TOOL_SPECS = [
       key: IDENTIFIER,
       valid_from: TIMESTAMP,
       valid_until: TIMESTAMP,
+      // Legacy "verified" is deliberately not advertised. The adapter still
+      // forwards it and the store rewrites it to "attested".
       outcome: {
         type: "string",
-        enum: ["unspecified", "proposed", "attempted", "attested", "verified", "failed"],
+        enum: ["unspecified", "proposed", "attempted", "attested", "failed"],
       },
     }, ["content"]),
   },
