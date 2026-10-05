@@ -5,9 +5,14 @@ repository link directly with Hermes, then activate it through the normal
 memory command:
 
 ```sh
-hermes plugins install OWNER/REPOSITORY --enable
+hermes plugins install promptclickrun/bigfeels --enable
 hermes memory setup bigfeels
 ```
+
+For an existing Mnemosyne provider, follow the separate
+[migration and rollback guide](../../docs/mnemosyne-migration.md). Importing does
+not switch profiles. Set the intended `HERMES_HOME` explicitly and preserve any
+existing local plugin changes before installation or update.
 
 Setup has no required fields. The provider opens the shared local bigfeels
 store in the primary Hermes process and defaults to the `owner` space.

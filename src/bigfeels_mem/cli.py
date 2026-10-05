@@ -216,6 +216,14 @@ def build_parser():
     restore = commands.add_parser('restore', help='Restore an export into an empty store')
     restore.add_argument('input')
 
+    migrate = commands.add_parser('import-mnemosyne', help='Import a read-only Mnemosyne v1.3 export into empty local storage')
+    migrate.add_argument('input')
+    migrate.add_argument('--source-id', required=True, help='Stable name for this source profile')
+    migrate.add_argument('--space', required=True, help='Destination space for global source records')
+    migrate.add_argument('--receipt', required=True, help='Private old/new ID receipt file')
+    migrate.add_argument('--naive-timezone', help='Source timezone for timestamps without offsets')
+    migrate.add_argument('--dry-run', action='store_true', help='Validate without creating any files')
+
     commands.add_parser('maintenance', help='Run retention and database maintenance')
 
     mcp = commands.add_parser('mcp', help='Run the MCP adapter over stdio')
@@ -481,6 +489,41 @@ def main(argv=None, stdout=None, stderr=None):
                 bundle = json.load(input_file)
             result = Store(database_path).restore(bundle)
             _write(stdout, result)
+        elif args.command == 'import-mnemosyne':
+            from .mnemosyne import apply_import, plan_import
+
+            source = Path(args.input).resolve()
+            receipt = Path(args.receipt).expanduser().resolve()
+            # SQLite may create, truncate, or remove sidecars while opening the
+            # destination. Protect both logical and resolved database locations,
+            # including hard-link aliases, before constructing Store.
+            protected = [config_path.resolve()]
+            for database in (database_path.absolute(), database_path.resolve()):
+                protected.extend(Path(str(database) + suffix)
+                                 for suffix in ('', '-wal', '-shm', '-journal'))
+
+            def aliases(left, right):
+                return (left.resolve() == right.resolve() or
+                        left.exists() and right.exists() and left.samefile(right))
+
+            if (aliases(source, receipt) or
+                    any(aliases(item, path) for item in (source, receipt) for path in protected)):
+                raise ValueError('Source and receipt must be separate from each other and all database/config files')
+            plan = plan_import(source, source_id=args.source_id, space=args.space,
+                               naive_timezone=args.naive_timezone)
+            if receipt.exists():
+                if receipt.stat().st_size > MAX_EXPORT_BYTES:
+                    raise ValueError('Receipt file exceeds limit')
+                with receipt.open(encoding='utf-8') as existing_receipt:
+                    if json.load(existing_receipt) != plan.receipt:
+                        raise ValueError('Refusing to overwrite an unrelated import receipt')
+            if args.dry_run:
+                _write(stdout, plan.summary('dry_run'))
+            else:
+                result = apply_import(Store(database_path), plan)
+                if not receipt.exists():
+                    _private_json(receipt, plan.receipt, replace=False)
+                _write(stdout, result)
         elif args.command == 'maintenance':
             _write(stdout, {'status': 'ok', **Store(database_path).maintenance()})
         elif args.command == 'mcp':
