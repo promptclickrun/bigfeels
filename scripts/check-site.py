@@ -13,7 +13,7 @@ class Page(HTMLParser):
         if tag=='a':self.links.append(a.get('href',''))
         if tag in ('img','script') and a.get('src'):self.assets.append(a['src'])
         if tag=='link' and a.get('href'):self.assets.append(a['href'])
-p=Page();text=(root/'index.html').read_text();p.feed(text)
+p=Page();text=(root/'index.html').read_text(encoding='utf-8');p.feed(text)
 assert p.lang=='en' and p.h1==1
 assert len(p.ids)==len(set(p.ids)), 'Duplicate IDs'
 # Responsive CSS can hide editorial line breaks; words must stay separated.
@@ -35,10 +35,10 @@ for link in p.assets+p.links:
     if not link.startswith(('https:','#')):
         assert (root/link).exists(),link
 for path in [root/'index.html',root/'app.js',root/'assets/BRAND.md']:
-    assert '\u2014' not in path.read_text(),f'Em dash in {path}'
+    assert '\u2014' not in path.read_text(encoding='utf-8'),f'Em dash in {path}'
 assert '<main id="main">' in text
 assert 'Illustrative CLI example' in text and 'It does not save anything.' in text
-assert 'Google' not in (root/'styles.css').read_text(), 'Fonts must be self-hosted'
+assert 'Google' not in (root/'styles.css').read_text(encoding='utf-8'), 'Fonts must be self-hosted'
 for external in set(x.split('#')[0] for x in p.links if x.startswith('https:')):
     with urllib.request.urlopen(external,timeout=30) as response:
         assert response.status==200,(external,response.status)

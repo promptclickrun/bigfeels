@@ -127,7 +127,16 @@ class LocalTests(unittest.TestCase):
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertEqual(json.loads(status.stdout)['memories'], 1)
         doctor = run('doctor')
-        self.assertEqual(json.loads(doctor.stdout)['status'], 'ok')
+        self.assertEqual(doctor.returncode, 0, doctor.stderr)
+        report = json.loads(doctor.stdout)
+        self.assertEqual(report['database'], 'ok')
+        self.assertEqual(report['config'], 'optional_for_native_hosts')
+        self.assertTrue(report['runtime']['supported'])
+        self.assertEqual(report['status'], 'needs_attention' if os.name == 'nt' else 'ok')
+        if os.name == 'nt':
+            permission = report['privacy']['database_permissions']
+            self.assertEqual(permission['model'], 'windows_acl')
+            self.assertEqual(permission['status'], 'not_verified')
         output = self.data / 'backup.json'
         env['BIGFEELS_MEM_TOKEN'] = 'stale-legacy-token-must-not-change-local-export'
         exported = run('export', '--output', str(output))
