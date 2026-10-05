@@ -187,6 +187,30 @@ def _error(message: str, *, code: str | None = None) -> str:
     return json.dumps({"error": error}, separators=(",", ":"))
 
 
+# Only fixed store validation rules are safe to show. Exception text can contain
+# credentials that were never tool arguments, and substring redaction suppresses
+# useful rules when they mention an enum value such as "attested".
+_VALIDATION_MESSAGES = frozenset({
+    "Caller-attested outcomes require an observed basis",
+    "Caller-attested outcomes require source evidence",
+    "Caller-attested outcomes require a tool observation",
+    "valid_until must follow valid_from",
+    "Evidence cannot cross memory spaces",
+    "Correction time must follow original validity",
+    "Timestamp must be an ISO-8601 string",
+    "Timestamp requires a timezone",
+    "query must be a string up to 8000 characters",
+    "budget must be between 1 and 32000",
+    "include_inactive must be boolean",
+    "Request must be an object",
+    "Request is not valid JSON",
+    *(f"Invalid {field}" for field in ("kind", "basis", "outcome")),
+    *(f"{field} must be a list of strings" for field in ("spaces", "evidence_ids")),
+    *(f"{field} must be a nonempty string up to {limit} characters"
+      for field, limit in (("content", 16000), ("space", 200), ("id", 200), ("key", 500))),
+})
+
+
 def _request_error(name: str, error: Exception) -> str:
     status = getattr(error, "status", None)
     if name in _ID_OPERATIONS and type(status) is int and status in {403, 404}:
@@ -194,6 +218,9 @@ def _request_error(name: str, error: Exception) -> str:
             "Memory item was not found or is not accessible.",
             code="not_found",
         )
+    message = str(error)
+    if type(status) is int and status == 400 and message in _VALIDATION_MESSAGES:
+        return _error(message + ".", code="invalid_request")
     return _error("Memory service request failed.")
 
 

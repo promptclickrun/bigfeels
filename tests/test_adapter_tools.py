@@ -11,6 +11,8 @@ from pathlib import Path
 import test_adapters  # noqa: F401
 
 from adapters.hermes.tools import handle_tool, tool_schemas
+from bigfeels_mem.client import ClientError
+from bigfeels_mem.local import LocalClient
 from bigfeels_mem.store import Principal, Store
 
 
@@ -241,6 +243,64 @@ class HermesAdapterToolTests(unittest.TestCase):
             )
         )
         self.assertEqual(tokenless, {"error": {"message": "Invalid memory tool arguments."}})
+
+    def test_store_validation_errors_reach_the_agent(self) -> None:
+        # The store's 400 says what to fix; the generic failure made agents retry blind.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        client = LocalClient(tmp.name, spaces=("owner",), auto_process=False)
+        self.addCleanup(client.close)
+
+        result = json.loads(
+            handle_tool(
+                "bigfeels_remember",
+                {"content": "Deploy finished.", "basis": "observed", "outcome": "verified"},
+                client.call,
+                ("owner",),
+                "owner",
+            )
+        )
+
+        self.assertEqual(result["error"]["code"], "invalid_request")
+        self.assertIn("require source evidence", result["error"]["message"])
+
+    def test_validation_errors_never_echo_argument_values(self) -> None:
+        secret = uuid.uuid4().hex
+
+        def rejecting_post(_operation: str, _payload: dict[str, object]) -> dict[str, object]:
+            raise ClientError(f"Invalid id {secret}", 400)
+
+        result = handle_tool(
+            "bigfeels_inspect", {"id": secret}, rejecting_post, ("owner",), "owner",
+        )
+
+        self.assertNotIn(secret, result)
+        self.assertEqual(json.loads(result), {"error": {"message": "Memory service request failed."}})
+
+    def test_unknown_validation_errors_do_not_disclose_service_secrets(self) -> None:
+        secret = uuid.uuid4().hex
+        for message in (f"Backend credential {secret}", "Invalid id abc", "Invalid revision 1234"):
+            with self.subTest(message=message):
+                def rejecting_post(_operation, _payload):
+                    raise ClientError(message, 400)
+
+                result = handle_tool(
+                    "bigfeels_inspect", {"id": "abc"}, rejecting_post, ("owner",), "owner",
+                )
+                self.assertEqual(json.loads(result), {"error": {"message": "Memory service request failed."}})
+
+    def test_attested_validation_is_actionable_even_when_rule_names_an_argument(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            client = LocalClient(temp, spaces=("owner",), auto_process=False)
+            self.addCleanup(client.close)
+            result = json.loads(handle_tool(
+                "bigfeels_remember", {"content": "Deploy finished.", "outcome": "attested"},
+                client.call, ("owner",), "owner",
+            ))
+            self.assertEqual(result["error"], {
+                "code": "invalid_request",
+                "message": "Caller-attested outcomes require an observed basis.",
+            })
 
     def test_invalid_calls_and_service_failures_do_not_echo_arguments_or_credentials(self) -> None:
         # Generate a synthetic marker; never ship a credential-shaped literal.
