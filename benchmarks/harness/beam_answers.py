@@ -27,6 +27,7 @@ import statistics
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,13 +60,19 @@ def load_prompts(beam_src):
 
 
 def ask(command, prompt):
-    """Run a model command with the prompt on stdin; retry transient failures."""
-    for _ in range(3):
+    """Run a model command with the prompt on stdin.
+
+    Failures retry with growing pauses, which also rides out the short
+    rate limits that CLI tools hit when launched thousands of times.
+    """
+    for pause in (5, 30, 120, 300, None):
         done = subprocess.run(command, shell=True, input=prompt, capture_output=True, text=True, timeout=900)
         reply = done.stdout.strip()
         if done.returncode == 0 and reply:
             return reply
-    raise RuntimeError(f'model command failed: {done.stderr.strip()[-300:]}')
+        if pause:
+            time.sleep(pause)
+    raise RuntimeError(f'model command failed: {(done.stderr or done.stdout).strip()[-300:]}')
 
 
 def judge_score(reply):
