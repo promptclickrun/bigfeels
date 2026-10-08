@@ -1,4 +1,5 @@
 """Transactional evidence, knowledge, access control, and durable processing."""
+from collections import Counter
 from contextlib import contextmanager, closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,8 +14,8 @@ import uuid
 
 from .privacy import redact
 from .retrieval import (
-    claims_compatible, conflicting_claim_ids, cosine, fts_query, lexical_matches,
-    lexical_score, normalized_claim, token_cost,
+    OPENING_CHARS, claims_compatible, conflicting_claim_ids, cosine,
+    lexical_relevance, match_groups, normalized_claim, token_cost,
 )
 from .schema import JOB_DIAGNOSTIC_COLUMNS, SCHEMA, migrate_schema, validate_schema
 
@@ -547,19 +548,24 @@ class Store:
                 f'SELECT * FROM memories WHERE space IN ({marks})' + predicate,
                 tuple(spaces) if include_inactive else (*spaces, at, at))}
             scores, reasons = {}, {}
-            fq = fts_query(query)
-            if fq and eligible:
-                # Rank a permitted projection so even BM25 corpus statistics
-                # cannot depend on memories the caller may not read.
-                c.execute('CREATE VIRTUAL TABLE temp.recall_fts USING fts5(id UNINDEXED,content,key)')
-                c.executemany('INSERT INTO recall_fts VALUES (?,?,?)',
-                              [(m['id'], m['content'], m['key']) for m in eligible.values()])
-                for row in c.execute('SELECT id FROM recall_fts WHERE recall_fts MATCH ?', (fq,)):
-                    memory = eligible[row['id']]
-                    relevance = lexical_score(query, memory['content'], memory['key'])
-                    if relevance > 0:
-                        scores[row['id']] = relevance
-                        reasons[row['id']] = ['keyword']
+            groups = match_groups(query)
+            if groups and eligible:
+                # Match a permitted projection so ranking cannot depend on
+                # memories the caller may not read.
+                c.execute("CREATE VIRTUAL TABLE temp.recall_fts USING "
+                          "fts5(id UNINDEXED,opening,content,key,tokenize='porter unicode61')")
+                c.executemany('INSERT INTO recall_fts VALUES (?,?,?,?)',
+                              [(m['id'], m['content'][:OPENING_CHARS], m['content'], m['key'])
+                               for m in eligible.values()])
+                opening, anywhere = Counter(), Counter()
+                for group in groups:
+                    for counts, columns in ((opening, '{opening key}'), (anywhere, '{content key}')):
+                        for row in c.execute('SELECT id FROM recall_fts WHERE recall_fts MATCH ?',
+                                             (f'{columns} : ({group})',)):
+                            counts[row['id']] += 1
+                for mid, matched in anywhere.items():
+                    scores[mid] = lexical_relevance(opening[mid], matched, len(groups))
+                    reasons[mid] = ['keyword']
             elif not query.strip():
                 scores = {mid: 1.0 for mid in eligible}
                 reasons = {mid: ['browse'] for mid in eligible}

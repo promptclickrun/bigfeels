@@ -62,27 +62,41 @@ def terms(query, *, expand=True):
     return result[:64]
 
 
-def fts_query(query):
-    return ' OR '.join('"' + term.replace('"', '""') + '"' for term in terms(query))
+# A memory's opening usually states its subject, the way a title does. Ranking
+# reads the first OPENING_CHARS characters (about 64 words) first. Matches
+# elsewhere in a long memory count at BODY_WEIGHT, so a late keyword is still
+# found without letting long text outrank focused text.
+OPENING_CHARS = 400
+BODY_WEIGHT = 0.25
 
 
-def lexical_matches(query, content, key=None, *, expand=True):
-    wanted = set(terms(query, expand=expand))
-    if not wanted:
-        return set()
-    available = set(terms(' '.join(value for value in (content, key) if value), expand=expand))
-    return wanted & available
+def match_groups(query):
+    """Return one FTS5 expression per informative query word, at most 64.
+
+    The recall index stems words, so a group also matches inflections. A
+    concept family forms one group: synonyms widen a match without making the
+    question look larger.
+    """
+    groups = []
+    for term in re.findall(r'[^\W_]+(?:[\'-][^\W_]+)*', query.lower(), re.UNICODE):
+        if term in _STOP_WORDS:
+            continue
+        words = sorted(_CONCEPT_BY_TERM.get(term, (term,)))
+        group = ' OR '.join('"' + word.replace('"', '""') + '"' for word in words)
+        if group not in groups:
+            groups.append(group)
+    return groups[:64]
 
 
-def lexical_score(query, content, key=None):
-    """Return a bounded lexical relevance score, or zero to abstain."""
-    wanted = set(terms(query))
-    matched = lexical_matches(query, content, key)
-    if not wanted or not matched:
-        return 0.0
-    # Coverage favors records answering more of a natural question while still
-    # allowing a single distinctive noun to retrieve a concise fact.
-    return len(matched) / len(wanted) + min(len(matched), 4) / 10
+def coverage(matched, wanted):
+    # Favor records answering more of a natural question while still allowing
+    # a single distinctive noun to retrieve a concise fact.
+    return matched / wanted + min(matched, 4) / 10
+
+
+def lexical_relevance(opening, anywhere, wanted):
+    """Score a record from the query groups matched in its opening and anywhere."""
+    return max(coverage(opening, wanted), BODY_WEIGHT * coverage(anywhere, wanted))
 
 
 def normalized_claim(value):

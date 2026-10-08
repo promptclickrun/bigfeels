@@ -147,6 +147,16 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(result['memories'][0]['evidence_ids'])
         self.assertTrue(result['memories'][0]['source_available'])
 
+    def test_late_keywords_and_keys_remain_retrievable(self):
+        filler = ' '.join(f'filler{index}' for index in range(80))
+        early = self.remember('Astronomy is the chosen hobby. ' + filler)
+        late = self.remember(filler + ' Astronomy is the chosen hobby.')
+        keyed = self.remember(filler + ' ' + filler, key='hobby-telescope')
+        found = self.call('context', query='astronomy', budget=32000)['memories']
+        self.assertEqual([m['id'] for m in found], [early['id'], late['id']])
+        found = self.call('context', query='telescope', budget=32000)['memories']
+        self.assertEqual([m['id'] for m in found], [keyed['id']])
+
     def test_proposal_and_inference_cannot_claim_verified_outcome(self):
         m = self.remember('I will deploy tomorrow', kind='task', basis='inferred', outcome='proposed')
         self.assertEqual(m['status'], 'candidate')
