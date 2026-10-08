@@ -12,7 +12,8 @@ from benchmarks.harness.base_adapter import (
 )
 from benchmarks.harness.beam_answers import judge_score, kendall_tau_b
 from benchmarks.harness.longmemeval_runner import evaluate_longmemeval_subset
-from benchmarks.harness.scorer import CaseScore, aggregate_scores
+from benchmarks.harness.runner import generate_markdown_report, run_evaluation
+from benchmarks.harness.scorer import CaseScore, aggregate_scores, score_case
 
 
 class RecordingAdapter(BaseMemoryAdapter):
@@ -45,6 +46,18 @@ class RecordingAdapter(BaseMemoryAdapter):
 
     def teardown(self, handle):
         return None
+
+
+class GreedyAdapter(RecordingAdapter):
+    """Ignores the requested budget, like an adapter with its own accounting."""
+    budgets = []
+
+    def retrieve(self, handle, actor, query, as_of=None, budget=3200):
+        type(self).budgets.append(budget)
+        return RetrievalResult(
+            status="ok",
+            records=[NormalizedRecord(str(i), "alpha beta " * 40) for i in range(3)],
+        )
 
 
 class FailingIngestionAdapter(RecordingAdapter):
@@ -141,6 +154,41 @@ class BenchmarkHarnessTests(unittest.TestCase):
         self.assertAlmostEqual(kendall_tau_b([1, 2, 3, 5, 5], [1, 3, 2, 5, 5]), 7 / 9)
         self.assertEqual(judge_score('```json\n{"score": 0.5, "reason": "a } brace"}\n```'), 0.5)
         self.assertEqual(judge_score('Result -> "score": 1.0'), 1.0)
+
+    def test_scorer_requires_complete_facts_and_keeps_precision_bounded(self):
+        gold = {"expected_fact_ids": ["alpha beta", "alpha gamma"]}
+        fragment = score_case("fragment", gold, ["alpha"], 0.0, 0)
+        self.assertEqual((fragment.retrieval_recall, fragment.retrieval_precision), (0.0, 0.0))
+        partial = score_case("partial", gold, ["note: alpha beta.", "unrelated"], 0.0, 0)
+        self.assertEqual((partial.retrieval_recall, partial.retrieval_precision), (0.5, 0.5))
+        both = score_case("both", gold, ["alpha beta; alpha gamma"], 0.0, 0)
+        self.assertEqual((both.retrieval_recall, both.retrieval_precision), (1.0, 1.0))
+
+    def test_declared_budget_is_a_ceiling_for_every_case(self):
+        case = {"case_id": "c1", "capability": [], "operations": [],
+                "query": {"text": "alpha", "budget": 3200}}
+        gold = {"c1": {"expected_fact_ids": ["alpha beta"]}}
+        GreedyAdapter.budgets = []
+        tiny = run_evaluation(GreedyAdapter, [case], gold, budget=1)
+        self.assertEqual(GreedyAdapter.budgets, [1])
+        self.assertEqual(tiny.case_scores[0].tokens_used, 0)
+        self.assertEqual(tiny.case_scores[0].details["retrieved_count"], 0)
+        # Each record costs 440 content bytes plus 64; two fit in 1100.
+        roomy = run_evaluation(GreedyAdapter, [case], gold, budget=1100)
+        self.assertEqual(roomy.case_scores[0].tokens_used, 1008)
+        self.assertEqual(roomy.case_scores[0].details["trimmed_for_budget"], 1)
+
+    def test_report_describes_the_actual_run(self):
+        case = {"case_id": "c1", "capability": [], "operations": [], "query": {"text": "alpha"}}
+        summary = run_evaluation(GreedyAdapter, [case], {}, budget=1).to_dict()
+        report = generate_markdown_report({
+            "benchmark": "b", "corpus_version": "v", "corpus_sha256": "s", "timestamp": "t",
+            "environment": {"os": "Linux 6.1", "python_version": "3.12", "arch": "x86_64"},
+            "budget_bytes": 1, "systems": {"recording": summary}, "cases_metadata": [],
+        })
+        self.assertIn("`Linux 6.1`", report)
+        self.assertNotIn("macOS", report)
+        self.assertNotIn("Mnemosyne", report)
 
     def test_trust_gate_is_not_applicable_when_no_case_executes(self):
         summary = aggregate_scores(

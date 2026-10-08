@@ -3,7 +3,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+# One context-cost rule for every system: UTF-8 content bytes plus a fixed
+# allowance for identifiers and labels. Runners re-measure returned records with
+# it and enforce the declared ceiling, so a shared budget means equal context no
+# matter how an adapter accounts internally.
+RECORD_OVERHEAD_BYTES = 64
 
 
 @dataclass(frozen=True)
@@ -124,3 +130,19 @@ class BaseMemoryAdapter(ABC):
     def teardown(self, handle: Any) -> None:
         """Clean up isolated state completely."""
         pass
+
+
+def record_cost(content: str) -> int:
+    return len(content.encode("utf-8")) + RECORD_OVERHEAD_BYTES
+
+
+def within_budget(records: Sequence[NormalizedRecord], budget: int) -> Tuple[List[NormalizedRecord], int]:
+    """Keep records in rank order, skipping any that no longer fit the budget."""
+    kept: List[NormalizedRecord] = []
+    used = 0
+    for record in records:
+        cost = record_cost(record.content)
+        if used + cost <= budget:
+            kept.append(record)
+            used += cost
+    return kept, used

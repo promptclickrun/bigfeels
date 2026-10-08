@@ -1,8 +1,9 @@
 """Cleaned LongMemEval retrieval evaluation runner.
 
-Operates purely offline and zero-cost on longmemeval_oracle.json or a specified
-split/path. Evaluates retrieval precision, recall, and needle extraction without
-external API keys or package installations.
+Operates purely offline and zero-cost on longmemeval_s_cleaned.json or a
+specified split/path. The oracle split contains only answer-bearing sessions,
+so it must be requested explicitly. Evaluates retrieval precision, recall, and
+needle extraction without external API keys or package installations.
 """
 from __future__ import annotations
 
@@ -23,13 +24,13 @@ _SRC_DIR = str(Path(__file__).resolve().parent.parent.parent / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from .base_adapter import BaseMemoryAdapter
+from .base_adapter import BaseMemoryAdapter, within_budget
 from .baselines import CuratedNotesAdapter, NoMemoryAdapter, SimpleLexicalAdapter
 from .bigfeels_adapter import BigfeelsAdapter
 from .mnemosyne_adapter import MnemosyneAdapter
 
-DEFAULT_ORACLE_URL = (
-    "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json"
+DEFAULT_DATASET_URL = (
+    "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json"
 )
 
 ADAPTER_MAP: Dict[str, Type[BaseMemoryAdapter]] = {
@@ -198,8 +199,10 @@ def evaluate_longmemeval_subset(
                 lat = (time.perf_counter() - t0) * 1000
                 total_lat += lat
 
-                # Check if retrieved records contain the gold session or answer keywords
-                retrieved_texts = [r.content for r in ret_res.records]
+                # Check if retrieved records contain the gold session or answer
+                # keywords, charging every system the same way.
+                records, _ = within_budget(ret_res.records, budget)
+                retrieved_texts = [r.content for r in records]
                 session_hit = False
                 for sid in answer_sids:
                     if any(f"[{sid}]" in t for t in retrieved_texts):
@@ -242,7 +245,7 @@ def evaluate_longmemeval_subset(
 
 def main():
     parser = argparse.ArgumentParser(description="LongMemEval retrieval runner.")
-    parser.add_argument("--dataset", type=str, default=DEFAULT_ORACLE_URL, help="URL or path to LongMemEval JSON.")
+    parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET_URL, help="URL or path to LongMemEval JSON.")
     parser.add_argument("--cache-dir", type=Path, default=Path("/tmp/longmemeval_cache"), help="Local cache directory.")
     parser.add_argument("--limit", type=int, default=10, help="Number of instances to evaluate in dev subset.")
     parser.add_argument("--offset", type=int, default=0, help="Zero-based dataset offset for a frozen split.")

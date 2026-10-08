@@ -13,6 +13,7 @@ from .base_adapter import (
     OpResult,
     RetrievalResult,
     StorageStats,
+    within_budget,
 )
 
 
@@ -134,16 +135,8 @@ class CuratedNotesAdapter(BaseMemoryAdapter):
         budget: int = 3200,
     ) -> RetrievalResult:
         t0 = time.perf_counter()
-        bounded: List[NormalizedRecord] = []
-        used_bytes = 0
         # Dumps all stored notes into context up to budget
-        for n in handle.notes:
-            cost = len(n.content.encode("utf-8")) + 64
-            if used_bytes + cost <= budget:
-                bounded.append(n)
-                used_bytes += cost
-            else:
-                break
+        bounded, used_bytes = within_budget(handle.notes, budget)
         return RetrievalResult(
             status="ok",
             records=bounded,
@@ -235,15 +228,7 @@ class SimpleLexicalAdapter(BaseMemoryAdapter):
 
         scored.sort(key=lambda x: x[0], reverse=True)
 
-        bounded: List[NormalizedRecord] = []
-        used_bytes = 0
-        for _, r in scored:
-            cost = len(r.content.encode("utf-8")) + 64
-            if used_bytes + cost <= budget:
-                bounded.append(r)
-                used_bytes += cost
-            else:
-                break
+        bounded, used_bytes = within_budget([r for _, r in scored], budget)
 
         return RetrievalResult(
             status="ok",

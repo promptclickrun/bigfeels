@@ -48,4 +48,6 @@ python3 -m benchmarks.harness.longmemeval_runner \
   --json-out /tmp/longmemeval_mnemo_10.json
 ```
 
+Every system's returned context is measured with one rule, UTF-8 content bytes plus 64, and held to the case budget. `--budget` is a ceiling: a case may request less, never more. A record supports an expected fact only when it contains the whole fact. The LongMemEval runner defaults to `longmemeval_s_cleaned.json`; the oracle split holds only answer-bearing sessions and must be named explicitly.
+
 Capability gaps are recorded as unsupported, not silent passes. The synthetic trust gates reject stale exposure and cross-space leakage. LongMemEval's reported metric is a gold-session retrieval proxy, not answer accuracy or turn-level precision.
