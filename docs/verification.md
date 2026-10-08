@@ -39,6 +39,8 @@ The frozen eight-case Continuity_V2 smoke ran bigfeels, installed `mnemosyne-mem
 
 On the normalized LongMemEval_S first-100 development slice, bigfeels produced 91/100 gold-session proxy hits versus 68/100 for simple lexical and 12/100 for curated notes. On the frozen remaining 400 questions, bigfeels produced 351/400 hits (0.8775) versus 249/400 (0.6225) for simple lexical, a 25.5-point advantage with zero ingestion failures. bigfeels averaged 30.00 ms retrieval versus 14.14 ms for the simpler baseline.
 
+Opening-weighted ranking (2026-10-07) changed these to 92/100 and 348/400, with unchanged gold-session retrieval (436/500) and 5.7 ms mean retrieval. On BEAM's 500K and 1M tiers, lexical source recall at 3,200 bytes rose from 38.2% to 41.2% and from 27.0% to 30.6%. The method, intervals, and limits are in `benchmarks/results/2026-10-07-beam-retrieval.md`.
+
 The Mnemosyne adapter used its documented `BeamMemory.remember_batch` path with imported trust, disabled LLM/entity extraction, and an isolated `/tmp` database. One LongMemEval_S question completed with a hit. Five and ten-question runs did not complete within the execution windows, so no incomplete Mnemosyne accuracy score was assigned. Raw bounded results and claim limits are in `benchmarks/results/2026-09-15-evaluation.md`.
 
 ## Limits
