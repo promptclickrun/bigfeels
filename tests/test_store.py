@@ -58,6 +58,37 @@ class StoreTests(unittest.TestCase):
             columns = {row[1] for row in connection.execute('PRAGMA table_info(jobs)')}
         self.assertTrue({'accepted_count', 'rejected_count', 'rejection_reason'} <= columns)
 
+    def test_existing_v1_database_rebuilds_recall_index_once(self):
+        # The original v1 layout indexed whole memories without stemming.
+        legacy_index = (
+            'CREATE VIRTUAL TABLE memory_fts USING fts5(id UNINDEXED, content, key);\n'
+            'CREATE TRIGGER memory_insert AFTER INSERT ON memories BEGIN\n'
+            ' INSERT INTO memory_fts(id,content,key) VALUES(new.id,new.content,new.key);\nEND;\n'
+            'CREATE TRIGGER memory_delete AFTER DELETE ON memories BEGIN\n'
+            ' DELETE FROM memory_fts WHERE id=old.id;\nEND;\n'
+            'CREATE TRIGGER memory_update AFTER UPDATE OF content,key ON memories BEGIN\n'
+            ' DELETE FROM memory_fts WHERE id=old.id;\n'
+            ' INSERT INTO memory_fts(id,content,key) VALUES(new.id,new.content,new.key);\nEND;\n')
+        old_schema = SCHEMA[:SCHEMA.index('DROP TRIGGER')] + legacy_index
+        legacy = Path(self.tmp.name) / 'legacy-index.sqlite'
+        filler = ' '.join(f'filler{index}' for index in range(80))
+        with closing(sqlite3.connect(legacy)) as connection:
+            connection.executescript(old_schema)
+            connection.execute(
+                "INSERT INTO memories VALUES ('mem_late','owner',?,'fact','direct','unspecified',"
+                "NULL,'active',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z',NULL)",
+                (filler + ' Telescopes are my hobby.',))
+            connection.commit()
+        store = Store(legacy)
+        owner = store.authenticate(store.pair('reader', ['owner']))
+        found = store.dispatch(owner, 'context', {'query': 'telescope', 'budget': 32000})
+        self.assertEqual([m['id'] for m in found['memories']], ['mem_late'])
+        with closing(sqlite3.connect(legacy)) as connection:
+            columns = {row[1] for row in connection.execute('PRAGMA table_info(memory_fts)')}
+            layout = connection.execute("SELECT value FROM metadata WHERE key='recall_index'").fetchone()
+        self.assertIn('opening', columns)
+        self.assertIsNotNone(layout)
+
     def test_deletion_preview_token_expires_without_deleting(self):
         memory = self.remember('Short-lived deletion confirmation.')
         with patch('bigfeels_mem.store.time.time', return_value=1_000):

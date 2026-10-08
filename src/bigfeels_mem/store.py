@@ -14,8 +14,8 @@ import uuid
 
 from .privacy import redact
 from .retrieval import (
-    OPENING_CHARS, claims_compatible, conflicting_claim_ids, cosine,
-    lexical_relevance, match_groups, normalized_claim, token_cost,
+    claims_compatible, conflicting_claim_ids, cosine, lexical_relevance,
+    match_groups, normalized_claim, token_cost,
 )
 from .schema import JOB_DIAGNOSTIC_COLUMNS, SCHEMA, migrate_schema, validate_schema
 
@@ -550,19 +550,16 @@ class Store:
             scores, reasons = {}, {}
             groups = match_groups(query)
             if groups and eligible:
-                # Match a permitted projection so ranking cannot depend on
-                # memories the caller may not read.
-                c.execute("CREATE VIRTUAL TABLE temp.recall_fts USING "
-                          "fts5(id UNINDEXED,opening,content,key,tokenize='porter unicode61')")
-                c.executemany('INSERT INTO recall_fts VALUES (?,?,?,?)',
-                              [(m['id'], m['content'][:OPENING_CHARS], m['content'], m['key'])
-                               for m in eligible.values()])
+                # Scores count matches in eligible memories only and use no
+                # corpus statistics, so memories the caller may not read
+                # cannot influence ranking.
                 opening, anywhere = Counter(), Counter()
                 for group in groups:
                     for counts, columns in ((opening, '{opening key}'), (anywhere, '{content key}')):
-                        for row in c.execute('SELECT id FROM recall_fts WHERE recall_fts MATCH ?',
+                        for row in c.execute('SELECT id FROM memory_fts WHERE memory_fts MATCH ?',
                                              (f'{columns} : ({group})',)):
-                            counts[row['id']] += 1
+                            if row['id'] in eligible:
+                                counts[row['id']] += 1
                 for mid, matched in anywhere.items():
                     scores[mid] = lexical_relevance(opening[mid], matched, len(groups))
                     reasons[mid] = ['keyword']
@@ -598,33 +595,40 @@ class Store:
                     if neighbor not in scores:
                         scores[neighbor] = 0.5
                         reasons[neighbor] = ['conflicting_evidence']
-            # Never walk dense legacy adjacency lists. Keyed conflicts are
-            # already projected above; other imported relations use bounded
-            # exact-pair index probes, only between authorized eligible IDs.
-            # Freeze seeds to preserve one-hop expansion, not graph traversal.
-            seeds = tuple(scores)
+            # Expand one hop along contradiction edges from matched memories.
+            # Batched index reads stop after 1000 edges, so dense legacy
+            # graphs stay bounded and omissions are disclosed. Keyed conflicts
+            # are already projected above; when every eligible memory already
+            # matched there is nothing to add and the graph is not read.
+            seeds = list(scores) if len(scores) < len(eligible) else []
             relation_checks, relation_limited = 0, False
-            for neighbor in eligible:
-                if neighbor in scores:
-                    continue
-                for mid in seeds:
-                    if relation_checks == 1000:
-                        relation_limited = True
-                        break
-                    relation_checks += 1
-                    related = c.execute(
-                        "SELECT 1 FROM relations WHERE source_id=? AND target_id=? AND kind='contradicts' "
-                        "UNION ALL SELECT 1 FROM relations WHERE source_id=? AND target_id=? AND kind='contradicts' LIMIT 1",
-                        (mid, neighbor, neighbor, mid)).fetchone()
-                    if related:
-                        scores[neighbor] = 0.5
-                        reasons[neighbor] = ['conflicting_evidence']
+            for start in range(0, len(seeds), 500):
+                batch = seeds[start:start + 500]
+                marks = ','.join('?' for _ in batch)
+                for near, far in (('source_id', 'target_id'), ('target_id', 'source_id')):
+                    room = 1000 - relation_checks
+                    rows = c.execute(f'SELECT {far},kind FROM relations WHERE {near} IN ({marks}) LIMIT ?',
+                                     (*batch, room + 1)).fetchall()
+                    relation_limited = len(rows) > room
+                    relation_checks += min(len(rows), room)
+                    for neighbor, kind in rows[:room]:
+                        if kind == 'contradicts' and neighbor in eligible and neighbor not in scores:
+                            scores[neighbor] = 0.5
+                            reasons[neighbor] = ['conflicting_evidence']
+                    if relation_limited:
                         break
                 if relation_limited:
                     break
             memories, used, oversized = [], 0, 0
             largest_omitted = 0
             for mid in sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)):
+                # Content bytes are a strict lower bound on a memory's cost, so
+                # one that cannot fit skips building its projection unless it
+                # may be the largest omission so far.
+                floor = len(eligible[mid]['content'].encode('utf-8'))
+                if used + floor >= budget and floor <= largest_omitted:
+                    oversized += 1
+                    continue
                 m = self._memory(c, p, mid) if browsing else self._context_memory(c, p, mid)
                 if mid in conflicts:
                     m['status'] = 'disputed'
