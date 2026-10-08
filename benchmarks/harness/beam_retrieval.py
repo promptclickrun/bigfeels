@@ -14,7 +14,9 @@ are read after ingestion and used only for scoring.
         --stores /tmp/beam-stores --json-out /tmp/beam.json
 
 Pass `--compare earlier.json` to report paired differences with a
-conversation-level bootstrap interval.
+conversation-level bootstrap interval. Pass `--embedding-model` (and
+`--embedding-url` for a local OpenAI-compatible server) to index every memory
+and rank with keywords and embeddings together.
 """
 from __future__ import annotations
 
@@ -33,6 +35,7 @@ _SRC_DIR = str(Path(__file__).resolve().parent.parent.parent / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+from bigfeels_mem.providers import OpenAIProvider  # noqa: E402
 from bigfeels_mem.store import Principal, Store  # noqa: E402
 
 TIERS = ('100K', '500K', '1M')
@@ -95,8 +98,22 @@ def ingest(history, db_path):
     return owners, ambiguous
 
 
+def embed_missing(db_path, embedder):
+    """Index memories without a vector for this model, 32 per provider call."""
+    store = Store(db_path)
+    with store.connection() as c:
+        rows = c.execute('SELECT id,content FROM memories WHERE id NOT IN '
+                         '(SELECT memory_id FROM vectors WHERE model=?)', (embedder.model,)).fetchall()
+    for start in range(0, len(rows), 32):
+        batch = rows[start:start + 32]
+        vectors = embedder.embed([row['content'] for row in batch])
+        with store.connection(True) as c:
+            c.executemany('INSERT OR REPLACE INTO vectors VALUES (?,?,?)',
+                          [(row['id'], embedder.model, json.dumps(v)) for row, v in zip(batch, vectors)])
+
+
 def run_history(job):
-    tier, history, stores, budgets = job
+    tier, history, stores, budgets, provider = job
     history = Path(history)
     db_path = Path(stores) / f'{tier}-{history.name}.sqlite'
     sidecar = db_path.with_suffix('.json')
@@ -113,6 +130,9 @@ def run_history(job):
         ingest_seconds = time.perf_counter() - started
     owners, ambiguous = meta['owners'], set(meta['ambiguous'])
     store = Store(db_path)
+    if provider:
+        store.embedder = OpenAIProvider(provider)
+        embed_missing(db_path, store.embedder)
     probes = json.loads((history / 'probing_questions' / 'probing_questions.json').read_text())
     rows = []
     for category, items in probes.items():
@@ -196,13 +216,18 @@ def main(argv=None):
     parser.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 2))
     parser.add_argument('--json-out', type=Path)
     parser.add_argument('--compare', type=Path, help='Earlier --json-out for paired differences')
+    parser.add_argument('--embedding-model', help='Also rank with this embedding model')
+    parser.add_argument('--embedding-url', default='https://api.openai.com/v1',
+                        help='OpenAI-compatible base URL; loopback URLs keep content local')
     args = parser.parse_args(argv)
+    provider = ({'base_url': args.embedding_url, 'embedding_model': args.embedding_model,
+                 'allow_remote': True, 'timeout': 60} if args.embedding_model else None)
     args.stores.mkdir(parents=True, exist_ok=True)
     jobs = []
     for tier in args.tiers:
         for history in sorted((args.beam_dir / tier).iterdir(), key=lambda p: int(p.name)):
             if not args.histories or history.name in args.histories:
-                jobs.append((tier, str(history), str(args.stores), args.budgets))
+                jobs.append((tier, str(history), str(args.stores), args.budgets, provider))
     # Largest first keeps the pool busy at the end of a run.
     jobs.sort(key=lambda job: -chat_file(Path(job[1])).stat().st_size)
     with ProcessPoolExecutor(args.workers) as pool:

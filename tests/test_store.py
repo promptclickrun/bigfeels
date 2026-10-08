@@ -288,6 +288,27 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(len(result['memories']), 1)
         self.assertEqual(result['trace']['embedding_status'], 'unavailable')
 
+    def test_semantic_neighbors_fuse_with_keywords_without_a_fixed_threshold(self):
+        both = self.remember('Quarterly revenue report for finance')
+        semantic_only = self.remember('Sales grew nine percent last quarter')
+        keyword_only = self.remember('Finance team lunch is on Friday')
+        unrelated = self.remember('The cat sleeps on the sofa')
+        topics = {'revenue': [1.0, 0.0], 'sales': [0.6, 0.8], 'cat': [0.0, 0.0]}
+        class Embedder:
+            model = 'fixture-v2'
+            def embed(self, texts):
+                # Modest similarity (0.6) sits below the old 0.65 cutoff.
+                return [next((v for word, v in topics.items() if word in t.lower()), [0.0, 1.0])
+                        if t != 'finance results' else [1.0, 0.0] for t in texts]
+        self.store.rebuild_embeddings(Embedder())
+        self.store.embedder = Embedder()
+        found = self.call('context', query='finance results', budget=16000)['memories']
+        ids = [m['id'] for m in found]
+        self.assertEqual(ids[0], both['id'])
+        self.assertIn(semantic_only['id'], ids)
+        self.assertIn(keyword_only['id'], ids)
+        self.assertNotIn(unrelated['id'], ids)
+
     def test_restored_bundle_cannot_mix_private_evidence_into_owner_memory(self):
         e = self.observe(space='project:alpha')
         m = self.remember()

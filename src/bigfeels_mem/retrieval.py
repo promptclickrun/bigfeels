@@ -99,6 +99,22 @@ def lexical_relevance(opening, anywhere, wanted):
     return max(coverage(opening, wanted), BODY_WEIGHT * coverage(anywhere, wanted))
 
 
+# With an embedding provider, the nearest SEMANTIC_CANDIDATES memories join the
+# keyword matches. Reciprocal-rank fusion combines the two rankings without a
+# model-specific similarity scale; RRF_K is the conventional constant.
+SEMANTIC_CANDIDATES = 50
+RRF_K = 60
+
+
+def fuse_rankings(*rankings):
+    """Score each ID by the sum of 1 / (RRF_K + position) across rankings."""
+    fused = {}
+    for ranking in rankings:
+        for position, item in enumerate(ranking, 1):
+            fused[item] = fused.get(item, 0.0) + 1 / (RRF_K + position)
+    return fused
+
+
 def normalized_claim(value):
     return ' '.join(value.casefold().strip().rstrip('.!?').split())
 
@@ -140,11 +156,15 @@ def conflicting_claim_ids(records, targets):
     return conflicts
 
 
+# math.sumprod (Python 3.12+) computes dot products in C.
+_dot = getattr(math, 'sumprod', lambda a, b: sum(x * y for x, y in zip(a, b)))
+
+
 def cosine(a, b):
     if not a or len(a) != len(b):
         return 0.0
-    norm = math.sqrt(sum(x*x for x in a) * sum(x*x for x in b))
-    return sum(x*y for x, y in zip(a, b)) / norm if norm else 0.0
+    norm = math.sqrt(_dot(a, a) * _dot(b, b))
+    return _dot(a, b) / norm if norm else 0.0
 
 
 def token_cost(record):

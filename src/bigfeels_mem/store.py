@@ -4,6 +4,7 @@ from contextlib import contextmanager, closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import heapq
 import json
 from pathlib import Path
 import re
@@ -14,8 +15,8 @@ import uuid
 
 from .privacy import redact
 from .retrieval import (
-    claims_compatible, conflicting_claim_ids, cosine, lexical_relevance,
-    match_groups, normalized_claim, token_cost,
+    SEMANTIC_CANDIDATES, claims_compatible, conflicting_claim_ids, cosine,
+    fuse_rankings, lexical_relevance, match_groups, normalized_claim, token_cost,
 )
 from .schema import JOB_DIAGNOSTIC_COLUMNS, SCHEMA, migrate_schema, validate_schema
 
@@ -581,33 +582,37 @@ class Store:
             elif not query.strip():
                 scores = {mid: 1.0 for mid in eligible}
                 reasons = {mid: ['browse'] for mid in eligible}
+            semantic = []
             if vector is not None:
-                for mid in eligible:
-                    row = c.execute('SELECT vector FROM vectors WHERE memory_id=? AND model=?', (mid, vector_model)).fetchone()
-                    if row:
-                        similarity = cosine(vector, json.loads(row[0]))
-                        if similarity >= 0.65:
-                            scores[mid] = scores.get(mid, 0) + similarity
-                            # Semantic evidence is the primary reason when the
-                            # configured index independently confirms a lexical
-                            # alias match; lexical-only fallback still works.
-                            reasons[mid] = ['semantic']
+                nearest = []
+                for mid, stored in c.execute('SELECT memory_id,vector FROM vectors WHERE model=?', (vector_model,)):
+                    if mid in eligible:
+                        similarity = cosine(vector, json.loads(stored))
+                        if similarity > 0:
+                            nearest.append((similarity, mid))
+                semantic = [mid for _, mid in heapq.nlargest(SEMANTIC_CANDIDATES, nearest)]
+                for mid in semantic:
+                    # Semantic evidence is the primary reason even when a
+                    # keyword alias also matched; keyword-only fallback works.
+                    reasons[mid] = ['semantic']
             # Re-evaluate eligible keyed claims so old stores/exports written by
             # a permissive overlap heuristic cannot silently retain conflicts.
             # This is a read projection, not an unrequested database migration.
             keyed = {}
             conflicts = set()
-            matched_keys = {(eligible[mid]['space'], eligible[mid]['key']) for mid in scores}
+            found = set(scores) | set(semantic)
+            matched_keys = {(eligible[mid]['space'], eligible[mid]['key']) for mid in found}
             for mid, record in eligible.items():
                 if (record['key'] and record['status'] in ('active', 'disputed')
                         and (record['space'], record['key']) in matched_keys):
                     keyed.setdefault((record['space'], record['key']), []).append(mid)
             for group in keyed.values():
                 records = [eligible[mid] for mid in group]
-                matched = [eligible[mid] for mid in group if mid in scores]
+                matched = [eligible[mid] for mid in group if mid in found]
                 conflicts.update(conflicting_claim_ids(records, records))
                 for neighbor in conflicting_claim_ids(records, matched):
-                    if neighbor not in scores:
+                    if neighbor not in found:
+                        found.add(neighbor)
                         scores[neighbor] = 0.5
                         reasons[neighbor] = ['conflicting_evidence']
             # Expand one hop along contradiction edges from matched memories.
@@ -615,7 +620,7 @@ class Store:
             # graphs stay bounded and omissions are disclosed. Keyed conflicts
             # are already projected above; when every eligible memory already
             # matched there is nothing to add and the graph is not read.
-            seeds = list(scores) if len(scores) < len(eligible) else []
+            seeds = list(found) if len(found) < len(eligible) else []
             relation_checks, relation_limited = 0, False
             for start in range(0, len(seeds), 500):
                 batch = seeds[start:start + 500]
@@ -627,13 +632,17 @@ class Store:
                     relation_limited = len(rows) > room
                     relation_checks += min(len(rows), room)
                     for neighbor, kind in rows[:room]:
-                        if kind == 'contradicts' and neighbor in eligible and neighbor not in scores:
+                        if kind == 'contradicts' and neighbor in eligible and neighbor not in found:
+                            found.add(neighbor)
                             scores[neighbor] = 0.5
                             reasons[neighbor] = ['conflicting_evidence']
                     if relation_limited:
                         break
                 if relation_limited:
                     break
+            if semantic:
+                scores = fuse_rankings(
+                    sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)), semantic)
             memories, used, oversized = [], 0, 0
             largest_omitted = 0
             for mid in sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)):
