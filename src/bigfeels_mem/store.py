@@ -121,6 +121,16 @@ def grounded_claim_content(source, quote, claim):
     return claim
 
 
+def claim_digest(content):
+    return hashlib.sha256(normalized_claim(content).encode('utf-8')).hexdigest()
+
+
+def index_claims(c):
+    """Add claim digests for memories written without one, such as imports."""
+    missing = c.execute('SELECT id,content FROM memories WHERE id NOT IN (SELECT memory_id FROM claims)').fetchall()
+    c.executemany('INSERT INTO claims VALUES (?,?)', [(row[0], claim_digest(row[1])) for row in missing])
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path).expanduser()
@@ -142,6 +152,7 @@ class Store:
                 with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as c:
                     c.execute('BEGIN IMMEDIATE')
                     migrate_schema(c)
+                    index_claims(c)
                     c.commit()
             except (ValueError, sqlite3.Error):
                 raise MemoryError('Unsupported database schema', 409)
@@ -320,8 +331,11 @@ class Store:
         # Resolve repeats before synthesizing explicit evidence. Every supplied
         # source still joins lineage, so forgetting cannot leave an orphan copy.
         existing = None
-        for row in c.execute("SELECT * FROM memories WHERE space=? AND basis=? AND kind=? AND outcome=? AND key IS ? AND status IN ('active','candidate','disputed')",
-                             (space, basis, kind, outcome, key)):
+        digest = claim_digest(content)
+        for row in c.execute("SELECT m.* FROM claims d JOIN memories m ON m.id=d.memory_id "
+                             "WHERE d.digest=? AND m.space=? AND m.basis=? AND m.kind=? AND m.outcome=? "
+                             "AND m.key IS ? AND m.status IN ('active','candidate','disputed')",
+                             (digest, space, basis, kind, outcome, key)):
             same_interval = row['valid_from'] == start and row['valid_until'] == end
             same_current = row['valid_from'] <= start and row['valid_until'] == end and (end is None or end > start)
             same_claim = normalized_claim(row['content']) == normalized_claim(content)
@@ -354,6 +368,7 @@ class Store:
                     c.execute("UPDATE memories SET status='disputed',revision=revision+1 WHERE id=?", (row[0],))
         c.execute('INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                   (mid, space, content, kind, basis, outcome, key, status, 1, now(), start, end))
+        c.execute('INSERT INTO claims VALUES (?,?)', (mid, digest))
         c.executemany('INSERT INTO supports VALUES (?,?)', [(mid, e) for e in evidence_ids])
         # One witness edge per new assertion avoids a dense all-pairs graph.
         # Recall derives the complete eligible conflict set from the keyed slot.
@@ -761,6 +776,7 @@ class Store:
                     raise MemoryError('Export contains deleted evidence')
                 if c.execute('SELECT 1 FROM memories m JOIN tombstones t ON m.id=t.id LIMIT 1').fetchone():
                     raise MemoryError('Export contains deleted memories')
+                index_claims(c)
             except (sqlite3.Error, TypeError, KeyError):
                 raise MemoryError('Invalid export; transaction rolled back') from None
         return {'status': 'restored'}

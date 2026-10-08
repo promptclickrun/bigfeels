@@ -344,6 +344,22 @@ class StoreTests(unittest.TestCase):
         self.call('forget', id=first['id'])
         self.assertNotIn('Rare forgotten secret', str(self.call('export')))
 
+    def test_repeats_merge_with_memories_written_without_claim_digests(self):
+        first = self.remember('Use SQLite for the memory service.')
+        restored = Store(Path(self.tmp.name) / 'restored.sqlite')
+        restored.restore(self.call('export'))
+        reader = restored.authenticate(restored.pair('reader', ['owner']))
+        repeat = restored.dispatch(reader, 'remember', {'space': 'owner', 'content': 'use sqlite for the  memory service'})
+        self.assertEqual(repeat['id'], first['id'])
+        # Writers that predate the digest index (older versions, raw SQL)
+        # are backfilled the next time the store opens.
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute('DELETE FROM claims')
+            connection.commit()
+        reopened = Store(self.path)
+        repeat = reopened.dispatch(self.owner, 'remember', {'space': 'owner', 'content': 'USE SQLITE FOR THE MEMORY SERVICE!'})
+        self.assertEqual(repeat['id'], first['id'])
+
     def test_purge_removes_deleted_terms_from_database_pages(self):
         marker = 'zqxneverretainthiswordlpt'
         m = self.remember(marker)
