@@ -309,6 +309,21 @@ class StoreTests(unittest.TestCase):
         self.assertIn(keyword_only['id'], ids)
         self.assertNotIn(unrelated['id'], ids)
 
+    def test_semantic_ranking_sees_vectors_rewritten_by_another_process(self):
+        alpha, beta = self.remember('Alpha note'), self.remember('Beta note')
+        def embedder(target):
+            class Embedder:
+                model = 'fixture-v3'
+                def embed(self, texts):
+                    return [[1.0, 0.0] if t in ('query words', target) else [0.0, 1.0] for t in texts]
+            return Embedder()
+        self.store.rebuild_embeddings(embedder('Alpha note'))
+        self.store.embedder = embedder('Alpha note')
+        top = lambda: [m['id'] for m in self.call('context', query='query words', budget=16000)['memories']]
+        self.assertEqual(top(), [alpha['id']])
+        Store(self.path).rebuild_embeddings(embedder('Beta note'))
+        self.assertEqual(top(), [beta['id']])
+
     def test_restored_bundle_cannot_mix_private_evidence_into_owner_memory(self):
         e = self.observe(space='project:alpha')
         m = self.remember()

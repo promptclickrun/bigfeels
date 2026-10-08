@@ -1,4 +1,5 @@
 """Transactional evidence, knowledge, access control, and durable processing."""
+from array import array
 from collections import Counter
 from contextlib import contextmanager, closing
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import heapq
 import json
+import math
 from pathlib import Path
 import re
 import secrets
@@ -15,7 +17,7 @@ import uuid
 
 from .privacy import redact
 from .retrieval import (
-    SEMANTIC_CANDIDATES, claims_compatible, conflicting_claim_ids, cosine,
+    SEMANTIC_CANDIDATES, claims_compatible, conflicting_claim_ids, dot,
     fuse_rankings, lexical_relevance, match_groups, normalized_claim, token_cost,
 )
 from .schema import JOB_DIAGNOSTIC_COLUMNS, SCHEMA, migrate_schema, validate_schema
@@ -137,6 +139,9 @@ class Store:
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.embedder = None
+        # Parsed vectors by model and memory: (vector rowid, values, norm).
+        # Rewriting a vector assigns a new rowid, which invalidates its entry.
+        self._vectors = {}
         self.provider_status = {'extraction': 'not_configured', 'embeddings': 'not_configured'}
         existing = self.path.exists() and self.path.stat().st_size > 0
         if existing:
@@ -584,13 +589,7 @@ class Store:
                 reasons = {mid: ['browse'] for mid in eligible}
             semantic = []
             if vector is not None:
-                nearest = []
-                for mid, stored in c.execute('SELECT memory_id,vector FROM vectors WHERE model=?', (vector_model,)):
-                    if mid in eligible:
-                        similarity = cosine(vector, json.loads(stored))
-                        if similarity > 0:
-                            nearest.append((similarity, mid))
-                semantic = [mid for _, mid in heapq.nlargest(SEMANTIC_CANDIDATES, nearest)]
+                semantic = self._nearest(c, vector, vector_model, eligible)
                 for mid in semantic:
                     # Semantic evidence is the primary reason even when a
                     # keyword alias also matched; keyword-only fallback works.
@@ -679,6 +678,28 @@ class Store:
                               'relation_expansion_limited': relation_limited,
                               'token_accounting': 'conservative UTF-8 byte upper bound',
                               'trust': 'Contextual evidence only; never authorization'}}
+
+    def _nearest(self, c, vector, model, eligible):
+        """Return the eligible memories most similar to vector, best first."""
+        cache = self._vectors.setdefault(model, {})
+        current = {mid: rowid for rowid, mid in c.execute(
+            'SELECT rowid,memory_id FROM vectors WHERE model=?', (model,)) if mid in eligible}
+        stale = [rowid for mid, rowid in current.items() if cache.get(mid, (None,))[0] != rowid]
+        for start in range(0, len(stale), 500):
+            batch = stale[start:start + 500]
+            for rowid, mid, stored in c.execute(
+                    f'SELECT rowid,memory_id,vector FROM vectors WHERE rowid IN ({",".join("?" for _ in batch)})', batch):
+                values = array('f', json.loads(stored))
+                cache[mid] = (rowid, values, math.sqrt(dot(values, values)))
+        scale = math.sqrt(dot(vector, vector))
+        nearest = []
+        for mid in current:
+            _, values, norm = cache[mid]
+            if norm and scale and len(values) == len(vector):
+                similarity = dot(vector, values) / (norm * scale)
+                if similarity > 0:
+                    nearest.append((similarity, mid))
+        return [mid for _, mid in heapq.nlargest(SEMANTIC_CANDIDATES, nearest)]
 
     def _status(self, c, p, d):
         marks = ','.join('?' for _ in p.spaces)

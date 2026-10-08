@@ -157,14 +157,14 @@ def conflicting_claim_ids(records, targets):
 
 
 # math.sumprod (Python 3.12+) computes dot products in C.
-_dot = getattr(math, 'sumprod', lambda a, b: sum(x * y for x, y in zip(a, b)))
+dot = getattr(math, 'sumprod', lambda a, b: sum(x * y for x, y in zip(a, b)))
 
 
 def cosine(a, b):
     if not a or len(a) != len(b):
         return 0.0
-    norm = math.sqrt(_dot(a, a) * _dot(b, b))
-    return _dot(a, b) / norm if norm else 0.0
+    norm = math.sqrt(dot(a, a) * dot(b, b))
+    return dot(a, b) / norm if norm else 0.0
 
 
 def token_cost(record):
