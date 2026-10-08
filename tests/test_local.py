@@ -32,6 +32,26 @@ class LocalTests(unittest.TestCase):
         return client.call('observe', dict(space=space, content=content, speaker='user',
             source='native-test', source_event_id=content, session_id='one', captured=True))
 
+    def test_local_processing_indexes_embeddings_within_scope(self):
+        class Embedder:
+            model = 'fixture-local'
+            sent = []
+            def embed(self, texts):
+                self.sent.extend(texts)
+                return [[1.0, 0.0] if 'bicycle' in t or t == 'how do I commute' else [0.0, 1.0] for t in texts]
+        writer = self.client(spaces=['owner', 'private'])
+        bike = writer.call('remember', {'space': 'owner', 'content': 'I ride a bicycle to work.'})
+        writer.call('remember', {'space': 'owner', 'content': 'Tea is best with honey.'})
+        writer.call('remember', {'space': 'private', 'content': 'Private bicycle locker code.'})
+        client = self.client(auto_process=False)
+        client.store.embedder = Embedder()
+        self.assertEqual(client.call('status', {})['processing']['unembedded_memories'], 2)
+        client.process_pending()
+        self.assertEqual(client.call('status', {})['processing']['unembedded_memories'], 0)
+        self.assertNotIn('Private bicycle locker code.', Embedder.sent)
+        found = client.call('context', {'query': 'how do I commute'})['memories']
+        self.assertEqual([m['id'] for m in found], [bike['id']])
+
     def test_local_save_reopens_without_pairing_or_network(self):
         first = self.client()
         memory = first.call('remember', {'space': 'owner', 'content': 'Local orchid continuity.'})

@@ -286,7 +286,7 @@ class BackgroundProcessor:
                         break
                     processed += 1
             if self.provider.can_embed:
-                self.store.process_embeddings(self.provider)
+                self.store.process_embeddings(self.provider, spaces=spaces)
         finally:
             self._processing.release()
         return processed

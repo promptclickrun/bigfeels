@@ -30,7 +30,9 @@ Inject the key through the process environment. `config.json` stores only the en
 
 Remote processing sends redacted evidence for extraction, memory content for embeddings, and queries for query embeddings. Redaction is best effort. Provider redirects and HTTP proxies are disabled, requests are bounded, and diagnostics omit private source text and upstream error bodies.
 
-Run `bigfeels-mem process --space SPACE --limit 8` for an explicit bounded batch or leave `serve` running for background processing. Always read the returned/current status. Queued, retrying, failed, and rejected work are distinct from completed learning.
+Run `bigfeels-mem process --space SPACE --limit 8` for an explicit bounded batch or leave `serve` running for background processing. With an embedding model, each run also indexes up to 32 unindexed memories; `status.processing.unembedded_memories` shows what remains.
+
+Embeddings add meaning-based recall. Search merges the keyword ranking with the 50 nearest memories by reciprocal rank, so no model-specific similarity threshold is needed. Nearest neighbors exist even for unrelated questions, so semantic-only matches (`reason: ["semantic"]`) can be loosely related. A fully local option is Ollama: `--base-url http://127.0.0.1:11434/v1 --embedding-model nomic-embed-text`. Always read the returned/current status. Queued, retrying, failed, and rejected work are distinct from completed learning.
 
 ## Security boundary
 

@@ -719,7 +719,13 @@ class Store:
         }
         provider_failures = c.execute(
             'SELECT COUNT(*)' + job_scope + " AND j.error='provider_error'", p.spaces).fetchone()[0]
+        unembedded = None
+        if self.embedder:
+            unembedded = c.execute(
+                f'SELECT COUNT(*) FROM memories WHERE space IN ({marks}) AND id NOT IN '
+                '(SELECT memory_id FROM vectors WHERE model=?)', (*p.spaces, self.embedder.model)).fetchone()[0]
         processing = {
+            'unembedded_memories': unembedded,
             'oldest_pending_at': oldest,
             'next_retry_at': retry,
             'accepted_candidates': totals[0],
@@ -982,11 +988,23 @@ class Store:
             self._embed_memory(mid, embedder)
         return {'indexed': len(ids), 'model': embedder.model}
 
-    def process_embeddings(self, embedder):
-        """Index one unindexed record; failures retry on the next worker tick."""
+    def process_embeddings(self, embedder, *, spaces=None, limit=32):
+        """Index up to limit unindexed memories with one provider call.
+
+        Returns the number attempted; failures raise and retry on a later call.
+        Only memories in spaces (all when None) are sent to the provider.
+        """
+        scope = '' if spaces is None else f' AND space IN ({",".join("?" for _ in spaces)})'
         with self.connection() as c:
-            row = c.execute('SELECT id FROM memories WHERE id NOT IN (SELECT memory_id FROM vectors WHERE model=?) ORDER BY recorded_at LIMIT 1', (embedder.model,)).fetchone()
-        if not row:
-            return False
-        self._embed_memory(row[0], embedder)
-        return True
+            rows = c.execute('SELECT id,content,revision FROM memories WHERE id NOT IN '
+                             '(SELECT memory_id FROM vectors WHERE model=?)' + scope + ' ORDER BY recorded_at LIMIT ?',
+                             (embedder.model, *(spaces or ()), limit)).fetchall()
+        if not rows:
+            return 0
+        vectors = embedder.embed([row['content'] for row in rows])
+        with self.connection(True) as c:
+            for row, vector in zip(rows, vectors):
+                current = c.execute('SELECT revision FROM memories WHERE id=?', (row['id'],)).fetchone()
+                if current and current[0] == row['revision']:
+                    c.execute('INSERT OR REPLACE INTO vectors VALUES (?,?,?)', (row['id'], embedder.model, json.dumps(vector)))
+        return len(rows)

@@ -176,7 +176,7 @@ def build_parser():
     forget.add_argument('--plan-token', required=True, help='Token returned by forget-preview')
     forget.add_argument('--space', action='append', dest='spaces', help='Allowed memory scope (default: owner)')
 
-    process = commands.add_parser('process', help='Process a bounded local extraction batch')
+    process = commands.add_parser('process', help='Process a bounded local extraction and embedding batch')
     process.add_argument('--limit', type=int, default=8)
     process.add_argument('--space', action='append', dest='spaces', help='Allowed processing scope (default: owner)')
 
