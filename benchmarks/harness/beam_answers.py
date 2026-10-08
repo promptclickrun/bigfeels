@@ -62,17 +62,20 @@ def load_prompts(beam_src):
 def ask(command, prompt):
     """Run a model command with the prompt on stdin.
 
-    Failures retry with growing pauses, which also rides out the short
-    rate limits that CLI tools hit when launched thousands of times.
+    Failures and hung calls retry with growing pauses, which also rides out
+    the short rate limits that CLI tools hit when launched thousands of times.
     """
     for pause in (5, 30, 120, 300, None):
-        done = subprocess.run(command, shell=True, input=prompt, capture_output=True, text=True, timeout=900)
-        reply = done.stdout.strip()
-        if done.returncode == 0 and reply:
-            return reply
+        try:
+            done = subprocess.run(command, shell=True, input=prompt, capture_output=True, text=True, timeout=300)
+            reply, detail = done.stdout.strip(), (done.stderr or done.stdout).strip()[-300:]
+            if done.returncode == 0 and reply:
+                return reply
+        except subprocess.TimeoutExpired:
+            detail = 'timed out after 300 seconds'
         if pause:
             time.sleep(pause)
-    raise RuntimeError(f'model command failed: {(done.stderr or done.stdout).strip()[-300:]}')
+    raise RuntimeError(f'model command failed: {detail}')
 
 
 def judge_score(reply):
