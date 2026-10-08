@@ -22,7 +22,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
+import signal
 import statistics
 import subprocess
 import sys
@@ -66,12 +68,17 @@ def ask(command, prompt):
     the short rate limits that CLI tools hit when launched thousands of times.
     """
     for pause in (5, 30, 120, 300, None):
+        # A new session lets a timeout stop the whole command, not just its shell.
+        process = subprocess.Popen(command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, start_new_session=True)
         try:
-            done = subprocess.run(command, shell=True, input=prompt, capture_output=True, text=True, timeout=300)
-            reply, detail = done.stdout.strip(), (done.stderr or done.stdout).strip()[-300:]
-            if done.returncode == 0 and reply:
+            stdout, stderr = process.communicate(prompt, timeout=300)
+            reply, detail = stdout.strip(), (stderr or stdout).strip()[-300:]
+            if process.returncode == 0 and reply:
                 return reply
         except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
             detail = 'timed out after 300 seconds'
         if pause:
             time.sleep(pause)
@@ -194,6 +201,8 @@ def main(argv=None):
     parser.add_argument('--histories', nargs='+', help='Restrict to these history numbers')
     parser.add_argument('--per-category', type=int, help='At most this many questions per category per history')
     parser.add_argument('--budget', type=int, default=32000)
+    parser.add_argument('--context-order', choices=('rank', 'time'), default='rank',
+                        help='Present retrieved memories best-first or oldest-first')
     parser.add_argument('--embedding-model')
     parser.add_argument('--embedding-url', default='https://api.openai.com/v1')
     parser.add_argument('--workers', type=int, default=8)
@@ -204,6 +213,7 @@ def main(argv=None):
                  'allow_remote': True, 'timeout': 60} if args.embedding_model else None)
     manifest = {'started_at': datetime.now(timezone.utc).isoformat(), 'reader': args.reader,
                 'judge': args.judge, 'budget': args.budget, 'embedding_model': args.embedding_model,
+                'context_order': args.context_order,
                 'tiers': args.tiers, 'histories': args.histories, 'per_category': args.per_category}
     (args.out / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     pending = list(questions(args.beam_dir, args.tiers, args.histories, args.per_category))
@@ -223,7 +233,10 @@ def main(argv=None):
             return
         result = store_for(item).dispatch(PRINCIPAL, 'context', {
             'query': item['question'], 'budget': args.budget, 'spaces': [SPACE]})
-        context = '\n\n'.join(m['content'] for m in result['memories'])
+        memories = result['memories']
+        if args.context_order == 'time':
+            memories = sorted(memories, key=lambda m: m['valid_from'])
+        context = '\n\n'.join(m['content'] for m in memories)
         reply = ask(args.reader, answer_prompt.replace('<context>', context).replace('<question>', item['question']))
         answers.add({**item, 'answer': reply, 'context_bytes': result['tokens'],
                      'memories': [m['id'] for m in result['memories']]})
