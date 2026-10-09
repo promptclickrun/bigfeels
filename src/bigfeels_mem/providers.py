@@ -36,11 +36,52 @@ Use an empty memories list when nothing durable is supported.
 The service independently checks quotes and speaker compatibility.'''
 
 
-def extraction_messages(evidence):
-    body = {'speaker': evidence.get('speaker'), 'content': redact(evidence['content']),
+# Batch extraction applies the same rules to several items in one call.
+BATCH_EXTRACTION_PROMPT = (
+    EXTRACTION_PROMPT
+    .replace('the following untrusted evidence.', 'the following untrusted evidence items, a JSON list.')
+    .replace('with at most 16 entries.', 'with at most 16 entries per item.')
+    + '\nEach entry also has item: the index of the evidence item whose content contains its quote.')
+
+
+def _evidence_body(evidence):
+    return {'speaker': evidence.get('speaker'), 'content': redact(evidence['content']),
             'occurred_at': evidence.get('occurred_at')}
-    return [{'role': 'system', 'content': EXTRACTION_PROMPT},
+
+
+def batch_extraction_messages(items):
+    body = [{'index': index, **_evidence_body(e)} for index, e in enumerate(items)]
+    return [{'role': 'system', 'content': BATCH_EXTRACTION_PROMPT},
             {'role': 'user', 'content': json.dumps(body)}]
+
+
+def parse_batch_extraction(text, count):
+    """Split a batch reply into one candidate list per item.
+
+    Entries without a valid item index are dropped; per-item checks happen
+    in the store exactly as for single-item extraction.
+    """
+    try:
+        if not isinstance(text, str) or len(text) > 1_000_000:
+            raise ValueError()
+        text = text.strip()
+        if text.startswith('```json\n') and text.endswith('\n```'):
+            text = text[8:-4]
+        candidates = json.loads(text)['memories']
+        if not isinstance(candidates, list) or len(candidates) > 16 * count:
+            raise ValueError()
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise ProviderError('Extraction response does not match the memory schema') from None
+    results = [[] for _ in range(count)]
+    for candidate in candidates:
+        if isinstance(candidate, dict) and type(candidate.get('item')) is int and 0 <= candidate['item'] < count:
+            results[candidate['item']].append({k: v for k, v in candidate.items() if k != 'item'})
+    return results
+
+
+def extraction_messages(evidence):
+    return [{'role': 'system', 'content': EXTRACTION_PROMPT},
+            {'role': 'user', 'content': json.dumps(_evidence_body(evidence))}]
 
 
 def parse_extraction(text):
@@ -93,14 +134,14 @@ class OpenAIProvider:
             return None
         return cls(config)
 
-    def _post(self, path, payload):
+    def _post(self, path, payload, timeout=None):
         headers = {'Content-Type': 'application/json'}
         key = os.environ.get(self.key_env)
         if key:
             headers['Authorization'] = 'Bearer ' + key
         req = urllib.request.Request(self.base_url + path, json.dumps(payload, allow_nan=False).encode(), headers)
         try:
-            with self.opener.open(req, timeout=self.timeout) as response:
+            with self.opener.open(req, timeout=timeout or self.timeout) as response:
                 raw = response.read(2_000_001)
             if len(raw) > 2_000_000:
                 raise ProviderError('Provider response exceeds limit')
@@ -120,6 +161,18 @@ class OpenAIProvider:
         try:
             return parse_extraction(response['choices'][0]['message']['content'])
         except (KeyError, IndexError, TypeError, ValueError):
+            raise ProviderError('Extraction response does not match the memory schema') from None
+
+    def extract_batch(self, items):
+        if not self.can_extract:
+            raise ProviderError('Extraction model is not configured')
+        # The configured timeout covers one item; a batch gets one per item.
+        response = self._post('/chat/completions', {'model': self.extraction_model,
+            'messages': batch_extraction_messages(items),
+            'response_format': {'type': 'json_object'}}, timeout=min(self.timeout * len(items), 300))
+        try:
+            return parse_batch_extraction(response['choices'][0]['message']['content'], len(items))
+        except (KeyError, IndexError, TypeError):
             raise ProviderError('Extraction response does not match the memory schema') from None
 
     def embed(self, texts):

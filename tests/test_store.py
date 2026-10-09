@@ -207,6 +207,37 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.call('context', query='deployment')['memories'], [])
         self.assertFalse(self.store.process_one(Extractor()))
 
+    def test_batch_extraction_checks_each_item_against_its_own_evidence(self):
+        texts = ['I prefer Python.', 'I live in Lisbon.', 'I drink green tea.']
+        for index, text in enumerate(texts):
+            self.observe(source_event_id=f'batch-{index}', content=text)
+        self.call('observe', space='project:alpha', source='native-test', source_event_id='other-space',
+                  session_id='s1', speaker='user', content='I prefer Rust.', captured=True)
+        calls = []
+        class Extractor:
+            def extract(self, e):
+                raise AssertionError('batches must use extract_batch')
+            def extract_batch(self, items):
+                calls.append([e['content'] for e in items])
+                # The Lisbon quote is attributed to the wrong item, so it is ungrounded there.
+                return [[dict(content='I prefer Python.', quote='I prefer Python.', basis='direct')],
+                        [dict(content='I prefer Python.', quote='I prefer Python.', basis='direct')],
+                        [dict(content='I drink green tea.', quote='I drink green tea.', basis='direct')]]
+        self.assertEqual(self.store.process_batch(Extractor(), limit=8), 3)
+        self.assertEqual(calls, [texts])
+        self.assertEqual(len(self.call('context', query='Python', spaces=['owner'])['memories']), 1)
+        self.assertEqual(len(self.call('context', query='green tea', spaces=['owner'])['memories']), 1)
+        self.assertEqual(self.call('context', query='Rust')['memories'], [])
+        class Broken:
+            def extract_batch(self, items):
+                raise RuntimeError('offline')
+            extract = extract_batch
+        self.assertEqual(self.store.process_batch(Broken(), limit=8), 0)
+        with self.store.connection() as c:
+            pending = c.execute("SELECT state,error FROM jobs j JOIN evidence e ON e.id=j.evidence_id "
+                                "WHERE e.space='project:alpha'").fetchone()
+        self.assertEqual((pending['state'], pending['error']), ('pending', 'provider_error'))
+
     def test_failed_provider_keeps_job_and_content_out_of_error(self):
         self.observe()
         class Broken:
