@@ -30,10 +30,14 @@ keep unrelated plugin entries and slots:
 ```
 
 An empty plugin config uses native local storage in the normal data directory,
-the `owner` space, and the `main` agent. Automatic capture is off because
-`captureRoles` defaults to `[]`; host-model extraction is independently off
-because `autoExtract` defaults to `false`. Explicit `bigfeels_remember`, search,
-and inspection tools remain available. Set `dataDir` only when the host needs a
+the `owner` space, and the `main` agent, and writes memory from conversations:
+`captureRoles` defaults to `["user", "assistant"]` and `autoExtract` to `true`,
+so the host's model turns captured turns into short facts and summaries, one
+batched completion per drain. Tool output is captured only when `tool` is
+listed. Set `captureRoles: []` to turn automatic capture off; explicit
+`bigfeels_remember`, search, and inspection tools remain available.
+`memoryPolicy: "grounded"` keeps source wording and holds the model's
+inferences for review. HTTP mode keeps capture off unless roles are listed. Set `dataDir` only when the host needs a
 specific local directory. Set `projectSpaces` and `writeSpace` to link extra
 spaces. Python 3.11+ must be available as `python3`; set the optional
 `pythonPath` setting when it is elsewhere.
@@ -57,9 +61,8 @@ and defaults to 7 for every newly captured role. A replay of the same run reuses
 the original expiry.
 
 Captures made with `autoExtract` disabled are stored without extraction jobs;
-starting a worker later does not submit them. `autoExtract: true` is a separate
-consent boundary and is effective only when at
-least one capture role is selected. With the default empty role list, the
+starting a worker later does not submit them. `autoExtract` is effective only
+when at least one capture role is selected. With an empty role list, the
 adapter neither drains previously queued content nor services a child request
 to submit it to the host model. If `primaryAgentId` is set to another agent,
 add OpenClaw's explicit policy under that plugin entry: `"llm": {

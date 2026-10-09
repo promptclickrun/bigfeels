@@ -55,13 +55,13 @@ Returns `{id, status}`. `status: queued` means the source event committed to the
 
 ### status
 
-Input: `{}`. Returns scoped memory/evidence counts, `queue` state counts, provider configuration, schema version, and safe `processing` diagnostics. Standalone provider states are `configured`, `credential_missing`, or `not_configured`; `configured` does not claim that an endpoint is currently reachable. Processing diagnostics include `oldest_pending_at`, `next_retry_at`, `unembedded_memories` (null without an embedding model), and safe rejection/failure counters when supplied by the core. They never include source text or provider error bodies.
+Input: `{}`. Returns scoped memory/evidence counts, `queue` state counts, provider configuration, schema version, and safe `processing` diagnostics. Standalone provider states are `configured`, `credential_missing`, or `not_configured`; `configured` does not claim that an endpoint is currently reachable. Processing diagnostics include `memory_policy` (`model` or `grounded`), `oldest_pending_at`, `next_retry_at`, `unembedded_memories` (null without an embedding model), and safe rejection/failure counters when supplied by the core. They never include source text or provider error bodies.
 
 ### process
 
 Input: `{limit?: 8}`, where limit is 1 through 8. Returns `{processed, status}` on direct CLI/MCP and the standalone HTTP runtime. `processed` counts completed processing attempts according to the core contract. Zero is honest and may coexist with pending work when no extractor is configured, another worker owns processing, or retry timing has not arrived.
 
-Direct-local MCP can invoke its configured extractor. HTTP-backed MCP forwards bounded processing and deletion preview through the authenticated loopback service.
+Direct-local MCP can invoke its configured extractor; without one, it asks the client's model through `sampling/createMessage` when the client declared the sampling capability. Status then reports extraction as `host`. HTTP-backed MCP forwards bounded processing and deletion preview through the authenticated loopback service.
 
 ### export
 

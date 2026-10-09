@@ -134,7 +134,11 @@ function validateConfig(value) {
     autoCapture: value.autoCapture !== false,
     autoExtract: mode === "native" ? value.autoExtract !== false : value.autoExtract === true,
     autoRecall: value.autoRecall !== false,
+    memoryPolicy: value.memoryPolicy === undefined ? "model" : value.memoryPolicy,
   };
+  if (!new Set(["model", "grounded"]).has(config.memoryPolicy)) {
+    throw new Error("bigfeels memoryPolicy must be model or grounded");
+  }
 
   for (const key of ["autoCapture", "autoExtract", "autoRecall"]) {
     if (value[key] !== undefined && typeof value[key] !== "boolean") {
@@ -386,6 +390,7 @@ export function createOpenClawAdapter({
     const args = [DEFAULT_BRIDGE_PATH];
     if (config.dataDir) args.push("--data-dir", config.dataDir);
     for (const space of config.spaces) args.push("--space", space);
+    args.push("--memory-policy", config.memoryPolicy);
     return args;
   }
 

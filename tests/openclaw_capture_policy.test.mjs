@@ -100,6 +100,6 @@ test('invalid policy fails closed rather than enabling capture', () => {
   for (const config of [
     { captureRoles: 'user' }, { captureRoles: ['document'] }, { captureRoles: ['user', 'user'] },
     { evidenceRetentionDays: 0 }, { evidenceRetentionDays: null }, { evidenceRetentionDays: Infinity },
-    { autoExtract: 'false' }, { autoCapture: 'true' },
+    { autoExtract: 'false' }, { autoCapture: 'true' }, { memoryPolicy: 'loose' },
   ]) assert.throws(() => createOpenClawAdapter({ config }));
 });

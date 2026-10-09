@@ -35,7 +35,8 @@
     "evidenceRetentionDays": { "label": "Raw evidence retention (days)", "advanced": true },
     "autoExtract": { "label": "Automatic extraction", "help": "Native mode writes memories from captured turns with the host model by default; set false to keep captures as raw evidence only. HTTP mode is off unless enabled." },
     "autoCapture": { "label": "Automatic capture master switch", "help": "Compatibility off switch. Enabling it does not select roles; captureRoles remains required.", "advanced": true },
-    "autoRecall": { "label": "Automatic recall" }
+    "autoRecall": { "label": "Automatic recall" },
+    "memoryPolicy": { "label": "Memory policy", "help": "model (default) saves the model's standalone facts and summaries, labelling inferences; grounded keeps source wording and holds inferences for review.", "advanced": true }
   },
   "configSchema": {
     "type": "object",
@@ -57,7 +58,8 @@
       "evidenceRetentionDays": { "type": "integer", "minimum": 1, "maximum": 3650, "default": 7 },
       "autoExtract": { "type": "boolean" },
       "autoCapture": { "type": "boolean", "default": true },
-      "autoRecall": { "type": "boolean", "default": true }
+      "autoRecall": { "type": "boolean", "default": true },
+      "memoryPolicy": { "type": "string", "enum": ["model", "grounded"], "default": "model" }
     }
   }
 }

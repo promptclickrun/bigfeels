@@ -9,11 +9,12 @@ import time
 
 from .client import ClientError
 from .paths import default_data_dir
-from .store import MemoryError, Principal, Store, required, string_list
+from .store import MEMORY_POLICIES, MemoryError, Principal, Store, required, string_list
 
 
 class LocalClient:
-    def __init__(self, data_dir=None, spaces=('owner',), name='local', extractor=None, auto_process=True):
+    def __init__(self, data_dir=None, spaces=('owner',), name='local', extractor=None, auto_process=True,
+                 memory_policy=MEMORY_POLICIES[0]):
         allowed = string_list(list(spaces), 'spaces')
         if not allowed:
             raise ValueError('At least one memory space is required')
@@ -21,7 +22,10 @@ class LocalClient:
             required({'space': space}, 'space', 200)
         self.principal = Principal(name, tuple(allowed))
         self.data_dir = Path(data_dir).expanduser() if data_dir else default_data_dir()
+        if memory_policy not in MEMORY_POLICIES:
+            raise ValueError('memory_policy must be one of: ' + ', '.join(MEMORY_POLICIES))
         self.store = Store(self.data_dir / 'memory.sqlite')
+        self.store.memory_policy = memory_policy
         # Raw evidence retention is independent of model extraction opt-in.
         self.store.maintenance()
         self._maintenance_at = time.monotonic()

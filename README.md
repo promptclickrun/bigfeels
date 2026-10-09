@@ -55,7 +55,7 @@ Configure the MCP command as `bigfeels-mem` with arguments `mcp`. Use the execut
 }
 ```
 
-MCP exposes explicit remember, context, search, inspect, correct, deletion preview, token-confirmed deletion, status, export, observe, and bounded process tools in direct-local and authenticated loopback HTTP modes. Explicit saves and recall work without a model provider. `memory_observe` only queues source evidence. MCP cannot see an arbitrary host's conversation lifecycle, so it does not promise universal automatic capture. `memory_process` needs a configured extractor; inspect `memory_status` for pending, failed, retry, and provider state. See [docs/advanced.md](docs/advanced.md).
+MCP exposes explicit remember, context, search, inspect, correct, deletion preview, token-confirmed deletion, status, export, observe, and bounded process tools in direct-local and authenticated loopback HTTP modes. Explicit saves and recall work without a model provider. `memory_observe` only queues source evidence. MCP cannot see an arbitrary host's conversation lifecycle, so it does not promise universal automatic capture. `memory_process` writes memory from queued evidence with the configured extraction model or, when none is configured and the client supports MCP sampling, with the client's own model. Inspect `memory_status` for pending, failed, retry, and provider state. See [docs/advanced.md](docs/advanced.md).
 
 Agents recall best by searching for themselves: a few focused `memory_context` calls of 8,000–16,000 bytes each. On BEAM, that beat a single 96,000-byte context by 2.5 points at about two-thirds of the cost ([results](benchmarks/results/2026-10-08-beam-answers-agent.md)).
 
@@ -81,6 +81,18 @@ See [docs/CONTRACT.md](docs/CONTRACT.md) and [docs/advanced.md](docs/advanced.md
 - [OpenClaw adapter](adapters/openclaw/README.md): native hooks, tools, and host-owned extraction through OpenClaw.
 
 Adapters can provide automatic capture because they participate in a host's lifecycle. They remain adapters, not prerequisites for the core product. If host model access is unavailable, observations stay queued and explicit memory operations continue to work.
+
+## How memory gets written
+
+By default a model writes the memory. The host's own model reads captured conversation in small batches and writes short, standalone facts plus a summary of each exchange. Every memory links back to the messages it came from.
+
+- **Hermes and OpenClaw** (native mode) capture user and assistant turns and use the host's model. Tool output is captured only when listed in `capture_roles` / `captureRoles`; an empty list turns capture off.
+- **MCP** uses the client's model through sampling when the client supports it.
+- **CLI and HTTP service** use the extraction model set with `bigfeels-mem configure`.
+
+What the model concludes rather than reads is kept and labelled `basis: inferred`. When a message says a value changed, the new fact replaces the old one, which stays visible for earlier dates through `as_of`. If the model drops a "not" or turns a failure into a success, the source sentence is saved instead.
+
+Two alternatives need no model at extraction time: explicit saves, and optional embeddings for meaning-based search over saved text (see [docs/advanced.md](docs/advanced.md)). To keep source wording and hold the model's inferences for review instead, set the memory policy to `grounded`: `bigfeels-mem configure --memory-policy grounded`, `memory_policy: grounded` for Hermes, or `"memoryPolicy": "grounded"` for OpenClaw.
 
 ## Data and trust boundary
 

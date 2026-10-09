@@ -17,10 +17,13 @@ existing local plugin changes before installation or update.
 Setup has no required fields. The provider opens the profile-local bigfeels
 store at `$HERMES_HOME/bigfeels` in the primary Hermes process and defaults to
 the `owner` space.
-Automatic turn capture is off: `capture_roles` defaults to an empty list, and
-`auto_extract` defaults to `false`. Explicit `bigfeels_remember` and search
-operations remain available without enabling either setting. There is no
-browser pairing, separate token, memory service, or model-provider key to copy.
+By default the provider writes memory from your conversations: `capture_roles`
+defaults to `[user, assistant]` and `auto_extract` to `true`, so Hermes's own
+auxiliary model turns captured turns into short facts and summaries in the
+background. Tool output is captured only when `tool` is listed. Set
+`capture_roles: []` to turn automatic capture off; explicit `bigfeels_remember`
+and search keep working. There is no browser pairing, separate token, memory
+service, or model-provider key to copy.
 
 Optional profile settings live under `memory.bigfeels` in Hermes config:
 
@@ -30,9 +33,10 @@ memory:
     path: ${HERMES_HOME}/bigfeels
     project_spaces: [project:app]
     write_space: project:app
-    capture_roles: [user]
+    capture_roles: [user, assistant]
     evidence_retention_days: 7
-    auto_extract: false
+    auto_extract: true
+    memory_policy: model
 ```
 
 `capture_roles` is the explicit automatic-capture allowlist. It accepts only
@@ -41,10 +45,11 @@ falling back to broader capture. New automatic captures always receive a finite
 expiry: `evidence_retention_days` defaults to 7 and accepts 1 through 3650.
 The expiry is reused when Hermes replays a completed turn.
 
-`auto_extract` is a separate opt-in. Captures made with it disabled are stored
-without extraction jobs, so a later worker cannot submit those captures.
-It must be `true` before queued evidence
-can be submitted to Hermes's host-model extraction lane. When capture is
+`auto_extract: false` keeps captures as raw evidence only. Captures made with it
+disabled are stored without extraction jobs, so a later worker cannot submit
+those captures. It must be `true` before queued evidence can be submitted to
+Hermes's host-model extraction lane. `memory_policy: grounded` keeps source
+wording and holds the model's inferences for review instead of saving them. When capture is
 disabled, the adapter does not attach that extractor or process older queued
 evidence through it. `path` defaults to `$HERMES_HOME/bigfeels` when Hermes supplies
 the profile home. Outside a Hermes profile, the engine uses its normal default.

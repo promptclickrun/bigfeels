@@ -18,7 +18,7 @@ For MCP over an existing service, use `mcp --url http://127.0.0.1:8765` with a s
 
 ## Standalone provider configuration
 
-Explicit memory operations work without a model. Only queued observations and optional embeddings need a provider.
+Explicit memory operations work without a model. Only queued observations and optional embeddings need a provider. Hermes and OpenClaw use their host's model instead, and direct-local MCP falls back to the client's model through sampling when no extraction model is configured.
 
 ```sh
 bigfeels-mem configure --base-url https://api.openai.com/v1 \
@@ -29,6 +29,8 @@ bigfeels-mem configure --base-url https://api.openai.com/v1 \
 Inject the key through the process environment. `config.json` stores only the environment variable name, endpoint, models, timeout, and remote-transfer consent. A loopback-compatible provider does not require `--allow-remote`.
 
 Remote processing sends redacted evidence for extraction, memory content for embeddings, and queries for query embeddings. Redaction is best effort. Provider redirects and HTTP proxies are disabled, requests are bounded, and diagnostics omit private source text and upstream error bodies.
+
+`--memory-policy model` (the default) saves the model's standalone facts and batch summaries, labelling its inferences `basis: inferred`, and lets a stated update close the older value of the same key. `--memory-policy grounded` keeps source wording and holds inferences as review candidates that recall does not return.
 
 Run `bigfeels-mem process --space SPACE --limit 8` for an explicit bounded batch or leave `serve` running for background processing. With an embedding model, each run also indexes up to 32 unindexed memories; `status.processing.unembedded_memories` shows what remains.
 

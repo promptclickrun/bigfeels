@@ -60,6 +60,8 @@ class NativeConfig:
     write_space: str = _NATIVE_OWNER_SPACE
     capture_roles: tuple[str, ...] = _DEFAULT_CAPTURE_ROLES
     auto_extract: bool = True
+    # "model" saves model-written claims; "grounded" keeps source wording.
+    memory_policy: str = "model"
     evidence_retention_days: int = DEFAULT_EVIDENCE_RETENTION_DAYS
     budget: int = 800
 
@@ -76,6 +78,8 @@ class NativeConfig:
             raise ValueError("Hermes write space must be an allowed memory space")
         if not isinstance(self.auto_extract, bool):
             raise ValueError("Hermes auto_extract must be boolean")
+        if self.memory_policy not in ("model", "grounded"):
+            raise ValueError("Hermes memory_policy must be model or grounded")
         roles = validate_capture_roles(self.capture_roles, "Hermes capture_roles")
         if roles != self.capture_roles:
             object.__setattr__(self, "capture_roles", roles)
@@ -188,6 +192,7 @@ def _native_config(values: dict[str, Any] | None = None) -> NativeConfig:
         "Hermes capture_roles",
     )
     auto_extract = values.get("auto_extract", True)
+    memory_policy = values.get("memory_policy", "model")
     retention_days = values.get(
         "evidence_retention_days",
         DEFAULT_EVIDENCE_RETENTION_DAYS,
@@ -203,6 +208,7 @@ def _native_config(values: dict[str, Any] | None = None) -> NativeConfig:
         write_space=write,
         capture_roles=capture_roles,
         auto_extract=auto_extract,
+        memory_policy=memory_policy,
         evidence_retention_days=retention_days,
         budget=budget,
     )
@@ -421,6 +427,7 @@ class BigfeelsMemoryProvider(MemoryProvider):
                     name="hermes",
                     extractor=extractor,
                     auto_process=config.auto_extract,
+                    memory_policy=config.memory_policy,
                 )
         with self._state_lock:
             self._latest_turn_key = None

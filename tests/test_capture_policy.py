@@ -33,6 +33,7 @@ class CapturePolicyTests(unittest.TestCase):
                 self.assertTrue(all(r['expires_at'] for r in records))
                 extractor.assert_called_once()
                 self.assertIs(p._local.extractor, extractor.return_value)
+                self.assertEqual(p._local.store.memory_policy, 'model')
             finally:
                 p.shutdown()
 
@@ -51,8 +52,10 @@ class CapturePolicyTests(unittest.TestCase):
 
     def test_opted_in_capture_defaults_to_user_only_and_finite_retention(self):
         with tempfile.TemporaryDirectory() as td:
-            p = self.provider(td, capture_roles=['user'], auto_extract=False, evidence_retention_days=7)
+            p = self.provider(td, capture_roles=['user'], auto_extract=False, evidence_retention_days=7,
+                              memory_policy='grounded')
             try:
+                self.assertEqual(p._local.store.memory_policy, 'grounded')
                 self.capture(p)
                 records = p._local.call('export', {})['evidence']
                 self.assertEqual([r['speaker'] for r in records], ['user'])

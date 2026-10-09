@@ -61,6 +61,7 @@ def main(argv=None, instream=None, outstream=None):
     parser = argparse.ArgumentParser(description='Native bigfeels child transport')
     parser.add_argument('--data-dir')
     parser.add_argument('--space', action='append', dest='spaces')
+    parser.add_argument('--memory-policy', default='model')
     args = parser.parse_args(argv)
     instream, outstream = instream or sys.stdin, outstream or sys.stdout
     identifier = None
@@ -75,7 +76,8 @@ def main(argv=None, instream=None, outstream=None):
         if not isinstance(operation, str) or not isinstance(payload, dict):
             raise ValueError('Invalid request')
         local = LocalClient(args.data_dir, spaces=args.spaces or ['owner'], name='native-bridge',
-                            extractor=_HostExtractor(instream, outstream), auto_process=False)
+                            extractor=_HostExtractor(instream, outstream), auto_process=False,
+                            memory_policy=args.memory_policy)
         if operation == 'process':
             result = {'processed': local.process_pending(payload.get('limit', 8))}
         else:
