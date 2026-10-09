@@ -44,4 +44,4 @@ The higher-scoring systems store model-written facts and summaries directly. Tha
 
 The batched extraction path still pays for itself whenever extraction is configured: it is about 12 times fewer model calls for the same checked output.
 
-Reproduce with `benchmarks/harness/beam_extract.py` on a copy of the stores, then `beam_answers.py --agent`.
+Reproduce with `benchmarks/harness/beam_extract.py` on a copy of the stores, then `beam_answers.py --agent`. Per-question scores for all four variants are in `2026-10-08-beam-extraction.scores.json`.
