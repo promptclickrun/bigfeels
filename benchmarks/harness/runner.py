@@ -16,7 +16,7 @@ _SRC_DIR = str(Path(__file__).resolve().parent.parent.parent / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from .base_adapter import BaseMemoryAdapter
+from .base_adapter import BaseMemoryAdapter, within_budget
 from .baselines import CuratedNotesAdapter, NoMemoryAdapter, SimpleLexicalAdapter
 from .bigfeels_adapter import BigfeelsAdapter
 from .corpus import generate_continuity_v2_corpus, write_frozen_corpus
@@ -106,14 +106,16 @@ def run_evaluation(
                 )
                 continue
 
-            # Execute query retrieval
+            # Execute query retrieval. The declared budget is a ceiling: a
+            # case may ask for less, never more.
             q = case["query"]
+            case_budget = min(q.get("budget", budget), budget)
             ret_res = adapter.retrieve(
                 handle=handle,
                 actor=q.get("actor", "agent-a"),
                 query=q.get("text", ""),
                 as_of=q.get("as_of"),
-                budget=q.get("budget", budget),
+                budget=case_budget,
             )
 
             if ret_res.status != "ok":
@@ -127,7 +129,9 @@ def run_evaluation(
                 )
                 continue
 
-            retrieved_contents = [r.content for r in ret_res.records]
+            # Charge every system the same way, whatever it reports.
+            records, context_bytes = within_budget(ret_res.records, case_budget)
+            retrieved_contents = [r.content for r in records]
 
             # Score case against gold
             cs = score_case(
@@ -135,10 +139,11 @@ def run_evaluation(
                 gold=gold,
                 retrieved_contents=retrieved_contents,
                 latency_ms=ret_res.latency_ms,
-                tokens_used=ret_res.tokens_used,
+                tokens_used=context_bytes,
                 provider_calls=ret_res.provider_calls,
                 status="ok",
             )
+            cs.details.update(budget=case_budget, trimmed_for_budget=len(ret_res.records) - len(records))
             case_scores.append(cs)
 
         finally:
@@ -161,7 +166,7 @@ def generate_markdown_report(report_data: Dict[str, Any]) -> str:
     lines.append(f"- **Corpus Version:** `{report_data['corpus_version']}`")
     lines.append(f"- **Corpus SHA256:** `{report_data['corpus_sha256']}`")
     lines.append(f"- **Timestamp:** `{report_data['timestamp']}`")
-    lines.append(f"- **Environment:** macOS `{report_data['environment']['os']}` | Python `{report_data['environment']['python_version']}` | Arch `{report_data['environment']['arch']}`")
+    lines.append(f"- **Environment:** `{report_data['environment']['os']}` | Python `{report_data['environment']['python_version']}` | Arch `{report_data['environment']['arch']}`")
     lines.append(f"- **Context Budget Ceiling:** `{report_data['budget_bytes']}` conservative UTF-8 bytes")
     lines.append(f"- **Paid Provider Calls:** `0` (Deterministic offline zero-cost execution)")
     lines.append("")
@@ -244,7 +249,10 @@ def generate_markdown_report(report_data: Dict[str, Any]) -> str:
     lines.append("")
     lines.append("## Methodology Notes & Limitations")
     lines.append("- All systems were evaluated on disjoint fictional data with frozen nonce strings.")
-    lines.append("- Installed Mnemosyne 3.15.1 was evaluated using public APIs over isolated `/tmp` databases in fresh worker subprocesses with zero live profile access.")
+    mnemosyne = report_data["systems"].get("mnemosyne")
+    if mnemosyne and mnemosyne["executed_cases"]:
+        lines.append(f"- Installed Mnemosyne `{mnemosyne['version']}` was evaluated using public APIs over isolated `/tmp` databases in fresh worker subprocesses with zero live profile access.")
+    lines.append("- Every system's returned context is measured with one rule (UTF-8 content bytes plus 64) and held to each case's budget, which never exceeds the declared ceiling.")
     lines.append("- Missing capabilities are scored as `Unsupported` coverage gaps, not silent passes or failures.")
     lines.append("- Non-compensatory trust gate: any stale knowledge exposure or cross-space leakage sets trust gate to 0.")
     lines.append("")

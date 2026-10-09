@@ -129,10 +129,12 @@ def main() -> None:
                 budget = int(req.get("budget", 3200))
                 bounded: List[Dict[str, Any]] = []
                 used_bytes = 0
+                # Mirrors base_adapter.within_budget; the runner re-measures
+                # and enforces the ceiling for every system.
                 for record in raw_results:
                     cost = len(str(record.get("content", "")).encode("utf-8")) + 64
                     if used_bytes + cost > budget:
-                        break
+                        continue
                     bounded.append({"id": record.get("id"), "content": record.get("content"),
                                     "importance": record.get("importance"), "source": record.get("source")})
                     used_bytes += cost

@@ -123,6 +123,8 @@ class MnemosyneAdapter(BaseMemoryAdapter):
         db_path = Path(temp_dir) / "mnemosyne.sqlite"
         session_id = f"eval-{run_id}-{seed}"
         proc, version = self._spawn_worker(db_path, session_id)
+        # Report the installed package, not the version this adapter was written against.
+        self.version = version
         return MnemosyneHandle(temp_dir=temp_dir, db_path=db_path, proc=proc, version=version,
                                session_id=session_id)
 

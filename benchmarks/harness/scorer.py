@@ -114,17 +114,15 @@ def score_case(
     retrieved_set = set(retrieved_contents)
     expected_set = set(expected)
 
-    # Retrieval recall and precision
+    # Retrieval recall and precision. A record supports a fact only when it
+    # contains the complete fact; a fragment of the fact is not evidence.
     if not expected_set:
         recall = 1.0 if not retrieved_set else 0.0
         precision = 1.0 if not retrieved_set else 0.0
     else:
-        hits = 0
-        for exp in expected_set:
-            if any(exp in r or r in exp for r in retrieved_set):
-                hits += 1
-        recall = hits / len(expected_set)
-        precision = hits / len(retrieved_set) if retrieved_set else 0.0
+        recall = sum(any(exp in r for r in retrieved_set) for exp in expected_set) / len(expected_set)
+        relevant = sum(any(exp in r for exp in expected_set) for r in retrieved_set)
+        precision = relevant / len(retrieved_set) if retrieved_set else 0.0
 
     # Stale & Forbidden Exposure
     bad_count = 0
