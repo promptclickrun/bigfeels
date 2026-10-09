@@ -10,6 +10,7 @@ from benchmarks.harness.base_adapter import (
     RetrievalResult,
     StorageStats,
 )
+from benchmarks.harness.beam_answers import judge_score, kendall_tau_b
 from benchmarks.harness.longmemeval_runner import evaluate_longmemeval_subset
 from benchmarks.harness.scorer import CaseScore, aggregate_scores
 
@@ -133,6 +134,13 @@ class BenchmarkHarnessTests(unittest.TestCase):
             evaluate_longmemeval_subset(fixture, ["recording"], limit=1)
         self.assertEqual(len(RecordingAdapter.observed), 3)
         self.assertTrue(all(len(content) <= 12_100 for content in RecordingAdapter.observed))
+
+    def test_beam_scoring_helpers_match_the_released_evaluator(self):
+        # scipy.stats.kendalltau(variant="b") values, including a joint tie.
+        self.assertEqual(kendall_tau_b([1, 2, 3, 4], [4, 3, 2, 1]), -1.0)
+        self.assertAlmostEqual(kendall_tau_b([1, 2, 3, 5, 5], [1, 3, 2, 5, 5]), 7 / 9)
+        self.assertEqual(judge_score('```json\n{"score": 0.5, "reason": "a } brace"}\n```'), 0.5)
+        self.assertEqual(judge_score('Result -> "score": 1.0'), 1.0)
 
     def test_trust_gate_is_not_applicable_when_no_case_executes(self):
         summary = aggregate_scores(
