@@ -4,6 +4,7 @@ import sys
 
 from . import __version__
 from .client import ClientError
+from .store import MAX_BUDGET
 
 
 PROTOCOL_VERSION = '2025-06-18'
@@ -61,7 +62,7 @@ TOOLS = (
         'inputSchema': _object({
             'query': {'type': 'string', 'maxLength': 8000},
             'spaces': {'type': 'array', 'items': SPACE, 'maxItems': 1000},
-            'budget': {'type': 'integer', 'minimum': 1, 'maximum': 32000},
+            'budget': {'type': 'integer', 'minimum': 1, 'maximum': MAX_BUDGET},
             'as_of': TIMESTAMP,
         }, ('query',)),
     },
@@ -71,7 +72,7 @@ TOOLS = (
         'inputSchema': _object({
             'query': {'type': 'string', 'maxLength': 8000},
             'spaces': {'type': 'array', 'items': SPACE, 'maxItems': 1000},
-            'budget': {'type': 'integer', 'minimum': 1, 'maximum': 32000},
+            'budget': {'type': 'integer', 'minimum': 1, 'maximum': MAX_BUDGET},
             'as_of': TIMESTAMP,
             'include_inactive': {'type': 'boolean', 'description': 'Include inactive records for inspection views.'},
         }, ('query',)),

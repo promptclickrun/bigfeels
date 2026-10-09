@@ -28,6 +28,9 @@ SAFE_REJECTION_REASONS = frozenset({
     'invalid_candidate', 'superseded_claim', 'mixed_invalid_candidates',
 })
 MAX_EXTRACTION_ATTEMPTS = 3
+# Largest context or search response a caller may request, in conservative
+# UTF-8 bytes (about 64K tokens). The default budget stays small.
+MAX_BUDGET = 256_000
 DELETE_PLAN_TTL_SECONDS = 300
 
 
@@ -544,8 +547,8 @@ class Store:
         if not isinstance(query, str) or len(query) > 8000:
             raise MemoryError('query must be a string up to 8000 characters')
         budget = d.get('budget', 800)
-        if type(budget) is not int or not 1 <= budget <= 32000:
-            raise MemoryError('budget must be between 1 and 32000')
+        if type(budget) is not int or not 1 <= budget <= MAX_BUDGET:
+            raise MemoryError(f'budget must be between 1 and {MAX_BUDGET}')
         spaces = string_list(d.get('spaces', []), 'spaces') or list(p.spaces)
         for space in spaces:
             self._scope(p, space)
@@ -565,8 +568,12 @@ class Store:
         with self.connection() as c:
             marks = ','.join('?' for _ in spaces)
             predicate = '' if include_inactive else " AND status IN ('active','disputed','superseded') AND valid_from<=? AND (valid_until IS NULL OR valid_until>?)"
+            # Content bytes bound each memory's cost; full text is needed only
+            # for keyed claims, which conflict detection compares.
             eligible = {r['id']: dict(r) for r in c.execute(
-                f'SELECT * FROM memories WHERE space IN ({marks})' + predicate,
+                'SELECT id,space,key,status,recorded_at,valid_from,valid_until,'
+                'length(CAST(content AS BLOB)) AS bytes,CASE WHEN key IS NOT NULL THEN content END AS content '
+                f'FROM memories WHERE space IN ({marks})' + predicate,
                 tuple(spaces) if include_inactive else (*spaces, at, at))}
             scores, reasons = {}, {}
             groups = match_groups(query)
@@ -648,7 +655,7 @@ class Store:
                 # Content bytes are a strict lower bound on a memory's cost, so
                 # one that cannot fit skips building its projection unless it
                 # may be the largest omission so far.
-                floor = len(eligible[mid]['content'].encode('utf-8'))
+                floor = eligible[mid]['bytes']
                 if used + floor >= budget and floor <= largest_omitted:
                     oversized += 1
                     continue

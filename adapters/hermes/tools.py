@@ -41,7 +41,7 @@ _SCHEMAS = (
             {
                 "query": {"type": "string", "maxLength": 8000},
                 "spaces": {"type": "array", "items": SPACE, "maxItems": 1000},
-                "budget": {"type": "integer", "minimum": 1, "maximum": 32000},
+                "budget": {"type": "integer", "minimum": 1, "maximum": 256000},
                 "as_of": TIMESTAMP,
                 "include_inactive": {
                     "type": "boolean",
@@ -200,7 +200,7 @@ _VALIDATION_MESSAGES = frozenset({
     "Timestamp must be an ISO-8601 string",
     "Timestamp requires a timezone",
     "query must be a string up to 8000 characters",
-    "budget must be between 1 and 32000",
+    "budget must be between 1 and 256000",
     "include_inactive must be boolean",
     "Request must be an object",
     "Request is not valid JSON",

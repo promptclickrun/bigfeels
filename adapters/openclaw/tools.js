@@ -19,7 +19,7 @@ const TOOL_SPECS = [
     parameters: objectSchema({
       query: { type: "string", maxLength: 8000 },
       spaces: { type: "array", items: SPACE, maxItems: 1000 },
-      budget: { type: "integer", minimum: 1, maximum: 32000 },
+      budget: { type: "integer", minimum: 1, maximum: 256000 },
       as_of: TIMESTAMP,
       include_inactive: {
         type: "boolean",

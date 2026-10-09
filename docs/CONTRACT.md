@@ -25,7 +25,7 @@ Returns the full memory record. A direct explicit save creates evidence when non
 
 ### context and search
 
-Input: `{query, spaces?: [], budget?: 800, as_of?: ISO}`.
+Input: `{query, spaces?: [], budget?: 800, as_of?: ISO}`. `budget` is 1 through 256,000 conservative UTF-8 bytes of returned memory payload.
 
 Returns `{memories, tokens, status, trace}`. An empty space list means all spaces allowed to that principal. `search` also accepts `include_inactive: true`; `context` does not expose that switch.
 
