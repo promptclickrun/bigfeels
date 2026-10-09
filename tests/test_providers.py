@@ -94,10 +94,12 @@ class BatchExtractionParsingTests(unittest.TestCase):
         from bigfeels_mem.providers import BATCH_EXTRACTION_PROMPT, parse_batch_extraction
         self.assertIn('per item', BATCH_EXTRACTION_PROMPT)
         reply = json.dumps({'memories': [
-            {'item': 1, 'content': 'B', 'quote': 'B'}, {'item': 0, 'content': 'A', 'quote': 'A'},
+            {'item': 1, 'content': 'B', 'quote': 'B'}, {'items': [0], 'content': 'A', 'quote': 'A'},
+            {'items': [1, 7, 0, 1], 'content': 'summary'},
             {'item': 5, 'content': 'out of range'}, {'content': 'no item'}, {'item': True, 'content': 'bool'}]})
-        self.assertEqual(parse_batch_extraction(reply, 2),
-                         [[{'content': 'A', 'quote': 'A'}], [{'content': 'B', 'quote': 'B'}]])
+        self.assertEqual(parse_batch_extraction(reply, 2), [
+            [{'content': 'A', 'quote': 'A', 'items': [0]}],
+            [{'content': 'B', 'quote': 'B', 'items': [1]}, {'content': 'summary', 'items': [1, 0]}]])
         with self.assertRaises(ProviderError):
             parse_batch_extraction('not json', 2)
 

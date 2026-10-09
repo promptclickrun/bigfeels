@@ -93,11 +93,9 @@ def string_list(value, name):
 
 
 
-def grounded_claim_content(source, quote, claim):
-    """Use the concise claim unless its quote omits same-sentence context."""
+def _quoted_sentence(source, quote):
+    """Return the sentence containing quote and the words around the quote."""
     offset = source.find(quote)
-    if offset < 0:
-        return claim
     left = max((source.rfind(mark, 0, offset) for mark in '.!?;\n'), default=-1)
     quote_end = offset + len(quote)
     if quote.rstrip().endswith(('.', '!', '?')):
@@ -112,19 +110,46 @@ def grounded_claim_content(source, quote, claim):
     relative = offset - left - 1 - leading
     surrounding = (sentence[:relative] + ' '
                    + sentence[relative + len(quote):]).casefold()
-    surrounding_words = re.findall(r'[^\W_]+', surrounding, re.UNICODE)
-    meaningful = [word for word in surrounding_words
-                  if word not in {'a', 'an', 'i', 'the', 'we'}]
-    negations = {'not', 'no', 'never', 'without', 'unless'}
-    negative_outcomes = {'fail', 'failed', 'failure', 'denied', 'error', 'unsuccessful'}
-    source_negative = bool(negative_outcomes.intersection(quote.casefold().replace(':', ' ').split()))
-    claim_negative = bool(negative_outcomes.intersection(claim.casefold().replace(':', ' ').split()))
+    return sentence, re.findall(r'[^\W_]+', surrounding, re.UNICODE)
+
+
+_NEGATIONS = {'not', 'no', 'never', 'without', 'unless'}
+_NEGATIVE_OUTCOMES = {'fail', 'failed', 'failure', 'denied', 'error', 'unsuccessful'}
+
+
+def _changes_polarity(quote, claim, words_around):
+    """True when the claim drops a nearby negation or flips a failure outcome."""
     claim_words = set(re.findall(r'[^\W_]+', claim.casefold(), re.UNICODE))
-    if meaningful or (negations.intersection(set(surrounding_words)) - claim_words):
-        return sentence
-    if source_negative != claim_negative:
+    quote_words = set(re.findall(r'[^\W_]+', quote.casefold(), re.UNICODE))
+    if (_NEGATIONS.intersection(set(words_around) | quote_words)) - claim_words:
+        return True
+    source_negative = bool(_NEGATIVE_OUTCOMES.intersection(quote.casefold().replace(':', ' ').split()))
+    claim_negative = bool(_NEGATIVE_OUTCOMES.intersection(claim.casefold().replace(':', ' ').split()))
+    return source_negative != claim_negative
+
+
+def grounded_claim_content(source, quote, claim):
+    """Use the concise claim unless its quote omits same-sentence context."""
+    if source.find(quote) < 0:
+        return claim
+    sentence, words_around = _quoted_sentence(source, quote)
+    meaningful = [word for word in words_around
+                  if word not in {'a', 'an', 'i', 'the', 'we'}]
+    if meaningful or _changes_polarity(quote, claim, words_around):
         return sentence
     return claim
+
+
+def model_claim_content(source, quote, claim):
+    """Keep the model's standalone claim unless it drops a negation or failure."""
+    if source.find(quote) < 0:
+        return claim
+    sentence, words_around = _quoted_sentence(source, quote)
+    return sentence if _changes_polarity(quote, claim, words_around) else claim
+
+
+# How extraction output is saved; the first is the default.
+MEMORY_POLICIES = ('model', 'grounded')
 
 
 def claim_digest(content):
@@ -142,6 +167,10 @@ class Store:
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.embedder = None
+        # Extraction policy. 'model' saves the model's standalone claims and
+        # summaries, labeled inferred where the source does not state them;
+        # 'grounded' keeps source wording and holds inferences for review.
+        self.memory_policy = MEMORY_POLICIES[0]
         # Parsed vectors by model and memory: (vector rowid, values, norm).
         # Rewriting a vector assigns a new rowid, which invalidates its entry.
         self._vectors = {}
@@ -302,7 +331,7 @@ class Store:
             c.execute('INSERT INTO jobs(evidence_id) VALUES (?)', (eid,))
         return {'id': eid, 'status': 'queued' if queue_extraction else 'stored'}
 
-    def _remember(self, c, p, d):
+    def _remember(self, c, p, d, *, inferred_status='candidate'):
         space = self._scope(p, required(d, 'space', 200))
         content = redact(required(d, 'content', 16000))
         kind = choice(d, 'kind', 'fact', ('fact', 'preference', 'decision', 'episode', 'procedure', 'task'))
@@ -360,7 +389,7 @@ class Store:
                       source_event_id=uid('save'), session_id='explicit', speaker='user', content=content))
             evidence_ids = [event['id']]
             c.execute('DELETE FROM jobs WHERE evidence_id=?', (event['id'],))
-        status = 'candidate' if basis == 'inferred' else 'active'
+        status = inferred_status if basis == 'inferred' else 'active'
         mid = uid('mem')
         conflicts = []
         if key and status == 'active':
@@ -732,6 +761,7 @@ class Store:
                 f'SELECT COUNT(*) FROM memories WHERE space IN ({marks}) AND id NOT IN '
                 '(SELECT memory_id FROM vectors WHERE model=?)', (*p.spaces, self.embedder.model)).fetchone()[0]
         processing = {
+            'memory_policy': self.memory_policy,
             'unembedded_memories': unembedded,
             'oldest_pending_at': oldest,
             'next_retry_at': retry,
@@ -864,6 +894,22 @@ class Store:
                        normalized_claim(row['content']) == claim)
                    for row in rows)
 
+    def _close_older_values(self, c, space, key, content, start):
+        """End earlier differing values of a key when a stated update replaces them.
+
+        Returns the closed ids. Unlike corrections, 'replaces' edges do not
+        widen deletion closure, so routine updates cannot chain a forget
+        across a whole conversation.
+        """
+        claim = normalized_claim(content)
+        older = [row['id'] for row in c.execute(
+            "SELECT id,content FROM memories WHERE space=? AND key=? AND status IN ('active','disputed') "
+            "AND valid_from<? AND (valid_until IS NULL OR valid_until>?)", (space, key, start, start))
+            if normalized_claim(row['content']) != claim]
+        c.executemany("UPDATE memories SET status='superseded',valid_until=?,revision=revision+1 WHERE id=?",
+                      [(start, mid) for mid in older])
+        return older
+
     def _finish_failed_attempt(self, c, evidence_id, lease, error, *, rejected=0,
                                reason=None):
         attempts = c.execute(
@@ -915,11 +961,25 @@ class Store:
         """
         with self.connection(True) as c:
             lease, items = self._jobs_to_process(c, spaces, limit)
+            # Recent labels let the extractor reuse keys, so a new value for
+            # the same subject is compared with the old one.
+            known_keys = [row[0] for row in c.execute(
+                "SELECT key FROM memories WHERE space=? AND key IS NOT NULL "
+                "AND status IN ('active','disputed') GROUP BY key ORDER BY max(recorded_at) DESC LIMIT 100",
+                (items[0]['space'],))] if items else []
         if not items:
             return 0
+        for e in items:
+            e['known_keys'] = known_keys
+        batch_ids = None
         try:
             batch = getattr(extractor, 'extract_batch', None)
-            results = batch(items) if batch and len(items) > 1 else [extractor.extract(e) for e in items]
+            if batch and len(items) > 1:
+                results = batch(items)
+                # Batch entries may cite several items by index.
+                batch_ids = [e['id'] for e in items]
+            else:
+                results = [extractor.extract(e) for e in items]
             if not isinstance(results, list) or len(results) != len(items):
                 results = [None] * len(items)
         except Exception:
@@ -930,7 +990,7 @@ class Store:
         finished, mids = 0, []
         for e, candidates in zip(items, results):
             try:
-                accepted = self._accept_candidates(e, lease, candidates)
+                accepted = self._accept_candidates(e, lease, candidates, batch_ids)
             except Exception:
                 with self.connection(True) as c:
                     self._finish_failed_attempt(c, e['id'], lease, 'provider_error')
@@ -943,8 +1003,13 @@ class Store:
                 self._embed_memory(mid, embedder)
         return finished
 
-    def _accept_candidates(self, e, lease, candidates):
-        """Check and save one item's candidates; None when the item did not finish."""
+    def _accept_candidates(self, e, lease, candidates, batch_ids=None):
+        """Check and save one item's candidates; None when the item did not finish.
+
+        batch_ids are the evidence ids of a batch call, which candidates cite
+        by index in items so a claim or summary keeps all of its sources.
+        """
+        model_written = self.memory_policy == 'model'
         malformed_response = not isinstance(candidates, list) or len(candidates) > 32
         if malformed_response:
             candidates = [None]
@@ -980,8 +1045,12 @@ class Store:
                     invalid += 1
                     rejection_codes.add('invalid_candidate')
                     continue
-                content = (grounded_claim_content(e['content'], quote, claim)
-                           if grounded and basis != 'inferred' else claim)
+                if model_written and grounded:
+                    content = model_claim_content(e['content'], quote, claim)
+                elif grounded and basis != 'inferred':
+                    content = grounded_claim_content(e['content'], quote, claim)
+                else:
+                    content = claim
                 if len(content) > 16000:
                     invalid += 1
                     rejection_codes.add('invalid_candidate')
@@ -991,14 +1060,31 @@ class Store:
                     suppressed += 1
                     rejection_codes.add('superseded_claim')
                     continue
+                evidence_ids = [e['id']]
+                cited = candidate.get('items')
+                if batch_ids and isinstance(cited, list):
+                    evidence_ids = list(dict.fromkeys(evidence_ids + [
+                        batch_ids[i] for i in cited if type(i) is int and 0 <= i < len(batch_ids)]))
                 payload = {k: candidate[k] for k in ('kind', 'key') if k in candidate}
                 payload.update(space=e['space'], content=content, basis=basis, outcome=outcome,
-                               evidence_ids=[e['id']], valid_from=e['occurred_at'])
+                               evidence_ids=evidence_ids, valid_from=e['occurred_at'])
+                # A failed save must not leave older values closed.
+                c.execute('SAVEPOINT candidate')
                 try:
-                    memory = self._remember(c, p, payload)
+                    replaced = []
+                    if (model_written and candidate.get('update') is True and isinstance(key, str)
+                            and basis != 'inferred'):
+                        replaced = self._close_older_values(c, e['space'], key, content, e['occurred_at'])
+                    memory = self._remember(c, p, payload,
+                                            inferred_status='active' if model_written else 'candidate')
+                    c.executemany('INSERT OR IGNORE INTO relations VALUES (?,?,?)',
+                                  [(memory['id'], old, 'replaces') for old in replaced])
+                    c.execute('RELEASE candidate')
                     mids.append(memory['id'])
                     accepted += 1
                 except MemoryError:
+                    c.execute('ROLLBACK TO candidate')
+                    c.execute('RELEASE candidate')
                     invalid += 1
                     rejection_codes.add('invalid_candidate')
             rejected = invalid + suppressed

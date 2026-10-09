@@ -195,6 +195,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.call('context', query='deploy')['memories'], [])
 
     def test_durable_worker_promotes_only_grounded_statements(self):
+        self.store.memory_policy = 'grounded'
         self.observe()
         class Extractor:
             def extract(self, e):
@@ -208,6 +209,7 @@ class StoreTests(unittest.TestCase):
         self.assertFalse(self.store.process_one(Extractor()))
 
     def test_batch_extraction_checks_each_item_against_its_own_evidence(self):
+        self.store.memory_policy = 'grounded'
         texts = ['I prefer Python.', 'I live in Lisbon.', 'I drink green tea.']
         for index, text in enumerate(texts):
             self.observe(source_event_id=f'batch-{index}', content=text)
@@ -384,6 +386,59 @@ class StoreTests(unittest.TestCase):
         records = self.call('search', query='', budget=8000)['memories']
         self.assertIn('I do not prefer PostgreSQL.', [m['content'] for m in records])
         self.assertNotIn('verified', [m['outcome'] for m in records])
+
+    def test_model_policy_keeps_model_wording_and_labels_inferences(self):
+        self.observe(content='We met on Tuesday and, after a long debate about costs, I decided to move the API to Go.')
+        self.observe(source_event_id='turn-2', speaker='assistant', content='Go should cut your hosting bill.')
+        class Extractor:
+            def extract(self, e):
+                if e['speaker'] == 'user':
+                    return [dict(content='The user moved the API to Go.', quote='I decided to move the API to Go',
+                                 basis='direct', kind='decision')]
+                return [dict(content='Moving to Go is expected to lower hosting costs.',
+                             quote='Go should cut your hosting bill.', basis='direct')]
+        self.assertEqual(self.store.process_batch(Extractor()), 2)
+        found = {m['content']: m for m in self.call('context', query='Go', budget=8000)['memories']}
+        self.assertEqual(found['The user moved the API to Go.']['basis'], 'direct')
+        inferred = found['Moving to Go is expected to lower hosting costs.']
+        self.assertEqual((inferred['basis'], inferred['status']), ('inferred', 'active'))
+
+    def test_stated_update_replaces_the_older_value_without_widening_forget(self):
+        self.observe(content='My deadline is March 1.', occurred_at='2026-01-01T00:00:00Z')
+        self.observe(source_event_id='turn-2', content='I moved my deadline to March 15.',
+                     occurred_at='2026-02-01T00:00:00Z')
+        class Extractor:
+            def extract(self, e):
+                if 'moved' in e['content']:
+                    return [dict(content='The deadline is March 15.', quote='moved my deadline to March 15',
+                                 basis='direct', key='project-deadline', update=True)]
+                return [dict(content='The deadline is March 1.', quote='My deadline is March 1.',
+                             basis='direct', key='project-deadline')]
+        self.assertTrue(self.store.process_one(Extractor()))
+        self.assertTrue(self.store.process_one(Extractor()))
+        [current] = self.call('context', query='deadline')['memories']
+        self.assertEqual((current['content'], current['status']), ('The deadline is March 15.', 'active'))
+        [earlier] = self.call('context', query='deadline', as_of='2026-01-15T00:00:00Z')['memories']
+        self.assertEqual((earlier['status'], earlier['valid_until']), ('superseded', '2026-02-01T00:00:00.000000Z'))
+        self.assertIn({'source_id': current['id'], 'target_id': earlier['id'], 'kind': 'replaces'},
+                      self.call('inspect', id=current['id'])['relations'])
+        preview = self.call('forget_preview', id=current['id'])
+        self.assertEqual([m['id'] for m in preview['memories']], [current['id']])
+
+    def test_batch_entries_cite_several_items_and_see_known_keys(self):
+        self.remember('The deadline is March 1.', key='project-deadline')
+        for index, text in enumerate(['Planning call started.', 'We chose Go.', 'Call ended.']):
+            self.observe(source_event_id=f'call-{index}', content=text)
+        seen = []
+        class Extractor:
+            def extract_batch(self, items):
+                seen.append(items[0]['known_keys'])
+                return [[dict(content='In a planning call the user chose Go.', kind='episode', items=[0, 1, 2, 9])],
+                        [], []]
+        self.assertEqual(self.store.process_batch(Extractor()), 3)
+        self.assertEqual(seen, [['project-deadline']])
+        [episode] = self.call('context', query='planning call')['memories']
+        self.assertEqual((episode['kind'], episode['basis'], episode['evidence_count']), ('episode', 'inferred', 3))
 
     def test_same_fact_can_recur_after_expiring(self):
         self.remember('I use SQLite', valid_from='2025-01-01T00:00:00Z', valid_until='2025-02-01T00:00:00Z')

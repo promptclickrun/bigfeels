@@ -66,6 +66,7 @@ class ReviewHardeningTests(unittest.TestCase):
         self.assertLessEqual(result['tokens'], result['trace']['budget'])
 
     def test_changed_claim_qualifier_preserves_context_and_requires_review(self):
+        self.store.memory_policy = 'grounded'
         for index, content in enumerate(['I prefer Python.', 'For backend scripts, I prefer Python.']):
             self.observe(content, str(index))
             self.assertTrue(self.store.process_one(Extractor()))

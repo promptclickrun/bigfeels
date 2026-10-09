@@ -16,7 +16,7 @@ from .local import LocalClient
 from .paths import default_data_dir
 from .providers import OpenAIProvider, ProviderError
 from .server import serve
-from .store import MemoryError, Store
+from .store import MEMORY_POLICIES, MemoryError, Store
 
 
 CONFIG_VERSION = 1
@@ -102,6 +102,10 @@ def _provider(store, config):
     extraction = _provider_availability(provider, 'can_extract')
     embeddings = _provider_availability(provider, 'can_embed')
     store.embedder = provider if embeddings == 'configured' else None
+    policy = config.get('memory_policy', MEMORY_POLICIES[0])
+    if policy not in MEMORY_POLICIES:
+        raise ValueError('memory_policy must be one of: ' + ', '.join(MEMORY_POLICIES))
+    store.memory_policy = policy
     store.provider_status = {
         'extraction': extraction,
         'embeddings': embeddings,
@@ -197,6 +201,9 @@ def build_parser():
     configure.add_argument('--embedding-model')
     configure.add_argument('--timeout', type=float)
     configure.add_argument('--allow-remote', action=argparse.BooleanOptionalAction, default=None)
+    configure.add_argument('--memory-policy', choices=MEMORY_POLICIES,
+                           help='model (default) saves model-written claims and summaries; '
+                                'grounded keeps source wording and holds inferences for review')
 
     serve_command = commands.add_parser('serve', help='Run the authenticated loopback service')
     serve_command.add_argument('--host', default='127.0.0.1')
@@ -444,6 +451,8 @@ def main(argv=None, stdout=None, stderr=None):
             if provider_config.get('extraction_model') or provider_config.get('embedding_model'):
                 OpenAIProvider.from_config(provider_config)
             config['provider'] = provider_config
+            if args.memory_policy:
+                config['memory_policy'] = args.memory_policy
             _private_json(config_path, config, replace=True)
             _write(stdout, {
                 'status': 'configured',
