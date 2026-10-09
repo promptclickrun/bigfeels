@@ -55,7 +55,7 @@ Returns `{id, status}`. `status: queued` means the source event committed to the
 
 ### status
 
-Input: `{}`. Returns scoped memory/evidence counts, `queue` state counts, provider configuration, schema version, and safe `processing` diagnostics. Standalone provider states are `configured`, `credential_missing`, or `not_configured`; `configured` does not claim that an endpoint is currently reachable. Processing diagnostics include `oldest_pending_at`, `next_retry_at`, and safe rejection/failure counters when supplied by the core. They never include source text or provider error bodies.
+Input: `{}`. Returns scoped memory/evidence counts, `queue` state counts, provider configuration, schema version, and safe `processing` diagnostics. Standalone provider states are `configured`, `credential_missing`, or `not_configured`; `configured` does not claim that an endpoint is currently reachable. Processing diagnostics include `oldest_pending_at`, `next_retry_at`, `unembedded_memories` (null without an embedding model), and safe rejection/failure counters when supplied by the core. They never include source text or provider error bodies.
 
 ### process
 

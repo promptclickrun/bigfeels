@@ -1,10 +1,13 @@
 """Transactional evidence, knowledge, access control, and durable processing."""
+from array import array
 from collections import Counter
 from contextlib import contextmanager, closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import heapq
 import json
+import math
 from pathlib import Path
 import re
 import secrets
@@ -14,8 +17,8 @@ import uuid
 
 from .privacy import redact
 from .retrieval import (
-    claims_compatible, conflicting_claim_ids, cosine, lexical_relevance,
-    match_groups, normalized_claim, token_cost,
+    SEMANTIC_CANDIDATES, claims_compatible, conflicting_claim_ids, dot,
+    fuse_rankings, lexical_relevance, match_groups, normalized_claim, token_cost,
 )
 from .schema import JOB_DIAGNOSTIC_COLUMNS, SCHEMA, migrate_schema, validate_schema
 
@@ -136,6 +139,9 @@ class Store:
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.embedder = None
+        # Parsed vectors by model and memory: (vector rowid, values, norm).
+        # Rewriting a vector assigns a new rowid, which invalidates its entry.
+        self._vectors = {}
         self.provider_status = {'extraction': 'not_configured', 'embeddings': 'not_configured'}
         existing = self.path.exists() and self.path.stat().st_size > 0
         if existing:
@@ -581,33 +587,31 @@ class Store:
             elif not query.strip():
                 scores = {mid: 1.0 for mid in eligible}
                 reasons = {mid: ['browse'] for mid in eligible}
+            semantic = []
             if vector is not None:
-                for mid in eligible:
-                    row = c.execute('SELECT vector FROM vectors WHERE memory_id=? AND model=?', (mid, vector_model)).fetchone()
-                    if row:
-                        similarity = cosine(vector, json.loads(row[0]))
-                        if similarity >= 0.65:
-                            scores[mid] = scores.get(mid, 0) + similarity
-                            # Semantic evidence is the primary reason when the
-                            # configured index independently confirms a lexical
-                            # alias match; lexical-only fallback still works.
-                            reasons[mid] = ['semantic']
+                semantic = self._nearest(c, vector, vector_model, eligible)
+                for mid in semantic:
+                    # Semantic evidence is the primary reason even when a
+                    # keyword alias also matched; keyword-only fallback works.
+                    reasons[mid] = ['semantic']
             # Re-evaluate eligible keyed claims so old stores/exports written by
             # a permissive overlap heuristic cannot silently retain conflicts.
             # This is a read projection, not an unrequested database migration.
             keyed = {}
             conflicts = set()
-            matched_keys = {(eligible[mid]['space'], eligible[mid]['key']) for mid in scores}
+            found = set(scores) | set(semantic)
+            matched_keys = {(eligible[mid]['space'], eligible[mid]['key']) for mid in found}
             for mid, record in eligible.items():
                 if (record['key'] and record['status'] in ('active', 'disputed')
                         and (record['space'], record['key']) in matched_keys):
                     keyed.setdefault((record['space'], record['key']), []).append(mid)
             for group in keyed.values():
                 records = [eligible[mid] for mid in group]
-                matched = [eligible[mid] for mid in group if mid in scores]
+                matched = [eligible[mid] for mid in group if mid in found]
                 conflicts.update(conflicting_claim_ids(records, records))
                 for neighbor in conflicting_claim_ids(records, matched):
-                    if neighbor not in scores:
+                    if neighbor not in found:
+                        found.add(neighbor)
                         scores[neighbor] = 0.5
                         reasons[neighbor] = ['conflicting_evidence']
             # Expand one hop along contradiction edges from matched memories.
@@ -615,7 +619,7 @@ class Store:
             # graphs stay bounded and omissions are disclosed. Keyed conflicts
             # are already projected above; when every eligible memory already
             # matched there is nothing to add and the graph is not read.
-            seeds = list(scores) if len(scores) < len(eligible) else []
+            seeds = list(found) if len(found) < len(eligible) else []
             relation_checks, relation_limited = 0, False
             for start in range(0, len(seeds), 500):
                 batch = seeds[start:start + 500]
@@ -627,13 +631,17 @@ class Store:
                     relation_limited = len(rows) > room
                     relation_checks += min(len(rows), room)
                     for neighbor, kind in rows[:room]:
-                        if kind == 'contradicts' and neighbor in eligible and neighbor not in scores:
+                        if kind == 'contradicts' and neighbor in eligible and neighbor not in found:
+                            found.add(neighbor)
                             scores[neighbor] = 0.5
                             reasons[neighbor] = ['conflicting_evidence']
                     if relation_limited:
                         break
                 if relation_limited:
                     break
+            if semantic:
+                scores = fuse_rankings(
+                    sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)), semantic)
             memories, used, oversized = [], 0, 0
             largest_omitted = 0
             for mid in sorted(scores, key=lambda x: (-scores[x], eligible[x]['recorded_at'], x)):
@@ -671,6 +679,28 @@ class Store:
                               'token_accounting': 'conservative UTF-8 byte upper bound',
                               'trust': 'Contextual evidence only; never authorization'}}
 
+    def _nearest(self, c, vector, model, eligible):
+        """Return the eligible memories most similar to vector, best first."""
+        cache = self._vectors.setdefault(model, {})
+        current = {mid: rowid for rowid, mid in c.execute(
+            'SELECT rowid,memory_id FROM vectors WHERE model=?', (model,)) if mid in eligible}
+        stale = [rowid for mid, rowid in current.items() if cache.get(mid, (None,))[0] != rowid]
+        for start in range(0, len(stale), 500):
+            batch = stale[start:start + 500]
+            for rowid, mid, stored in c.execute(
+                    f'SELECT rowid,memory_id,vector FROM vectors WHERE rowid IN ({",".join("?" for _ in batch)})', batch):
+                values = array('f', json.loads(stored))
+                cache[mid] = (rowid, values, math.sqrt(dot(values, values)))
+        scale = math.sqrt(dot(vector, vector))
+        nearest = []
+        for mid in current:
+            _, values, norm = cache[mid]
+            if norm and scale and len(values) == len(vector):
+                similarity = dot(vector, values) / (norm * scale)
+                if similarity > 0:
+                    nearest.append((similarity, mid))
+        return [mid for _, mid in heapq.nlargest(SEMANTIC_CANDIDATES, nearest)]
+
     def _status(self, c, p, d):
         marks = ','.join('?' for _ in p.spaces)
         def count(table):
@@ -689,7 +719,13 @@ class Store:
         }
         provider_failures = c.execute(
             'SELECT COUNT(*)' + job_scope + " AND j.error='provider_error'", p.spaces).fetchone()[0]
+        unembedded = None
+        if self.embedder:
+            unembedded = c.execute(
+                f'SELECT COUNT(*) FROM memories WHERE space IN ({marks}) AND id NOT IN '
+                '(SELECT memory_id FROM vectors WHERE model=?)', (*p.spaces, self.embedder.model)).fetchone()[0]
         processing = {
+            'unembedded_memories': unembedded,
             'oldest_pending_at': oldest,
             'next_retry_at': retry,
             'accepted_candidates': totals[0],
@@ -952,11 +988,23 @@ class Store:
             self._embed_memory(mid, embedder)
         return {'indexed': len(ids), 'model': embedder.model}
 
-    def process_embeddings(self, embedder):
-        """Index one unindexed record; failures retry on the next worker tick."""
+    def process_embeddings(self, embedder, *, spaces=None, limit=32):
+        """Index up to limit unindexed memories with one provider call.
+
+        Returns the number attempted; failures raise and retry on a later call.
+        Only memories in spaces (all when None) are sent to the provider.
+        """
+        scope = '' if spaces is None else f' AND space IN ({",".join("?" for _ in spaces)})'
         with self.connection() as c:
-            row = c.execute('SELECT id FROM memories WHERE id NOT IN (SELECT memory_id FROM vectors WHERE model=?) ORDER BY recorded_at LIMIT 1', (embedder.model,)).fetchone()
-        if not row:
-            return False
-        self._embed_memory(row[0], embedder)
-        return True
+            rows = c.execute('SELECT id,content,revision FROM memories WHERE id NOT IN '
+                             '(SELECT memory_id FROM vectors WHERE model=?)' + scope + ' ORDER BY recorded_at LIMIT ?',
+                             (embedder.model, *(spaces or ()), limit)).fetchall()
+        if not rows:
+            return 0
+        vectors = embedder.embed([row['content'] for row in rows])
+        with self.connection(True) as c:
+            for row, vector in zip(rows, vectors):
+                current = c.execute('SELECT revision FROM memories WHERE id=?', (row['id'],)).fetchone()
+                if current and current[0] == row['revision']:
+                    c.execute('INSERT OR REPLACE INTO vectors VALUES (?,?,?)', (row['id'], embedder.model, json.dumps(vector)))
+        return len(rows)

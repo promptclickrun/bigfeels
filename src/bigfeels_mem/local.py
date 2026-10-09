@@ -65,16 +65,24 @@ class LocalClient:
     def process_pending(self, limit=8):
         if type(limit) is not int or not 1 <= limit <= 8:
             raise ValueError('Processing limit must be between 1 and 8')
-        if not self.extractor or self._stop.is_set():
+        embedder = self.store.embedder
+        if not (self.extractor or embedder) or self._stop.is_set():
             return 0
         if not self._processing.acquire(blocking=False):
             return 0
         processed = 0
         try:
-            while processed < limit and not self._stop.is_set():
-                if not self.store.process_one(self.extractor, spaces=self.principal.spaces):
+            while self.extractor and processed < limit and not self._stop.is_set():
+                if not self.store.process_one(self.extractor, embedder, spaces=self.principal.spaces):
                     break
                 processed += 1
+            if embedder and not self._stop.is_set():
+                try:
+                    self.store.process_embeddings(embedder, spaces=self.principal.spaces)
+                except Exception:
+                    # Unindexed memories stay keyword-searchable, are counted
+                    # in status, and retry on the next call.
+                    pass
         finally:
             self._processing.release()
         return processed
