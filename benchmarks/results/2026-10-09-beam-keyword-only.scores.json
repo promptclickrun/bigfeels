@@ -1,0 +1,2402 @@
+{
+ "100K/1/abstention/0": {
+  "score": 0.0,
+  "searches": 3,
+  "bytes_read": 51247,
+  "nano_aiu": 4373030000
+ },
+ "100K/1/abstention/1": {
+  "score": 0.0,
+  "searches": 4,
+  "bytes_read": 67376,
+  "nano_aiu": 5637630000
+ },
+ "100K/1/contradiction_resolution/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17250,
+  "nano_aiu": 2027200000
+ },
+ "100K/1/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 17239,
+  "nano_aiu": 1973960000
+ },
+ "100K/1/event_ordering/0": {
+  "score": 0.3888888888888889,
+  "searches": 3,
+  "bytes_read": 40334,
+  "nano_aiu": 3912920000
+ },
+ "100K/1/event_ordering/1": {
+  "score": 0.33999999999999997,
+  "searches": 4,
+  "bytes_read": 68629,
+  "nano_aiu": 5973000000
+ },
+ "100K/1/information_extraction/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34168,
+  "nano_aiu": 3219640000
+ },
+ "100K/1/information_extraction/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34137,
+  "nano_aiu": 3349770000
+ },
+ "100K/1/instruction_following/0": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 51586,
+  "nano_aiu": 4652040000
+ },
+ "100K/1/instruction_following/1": {
+  "score": 0.5,
+  "searches": 3,
+  "bytes_read": 50584,
+  "nano_aiu": 4406510000
+ },
+ "100K/1/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34385,
+  "nano_aiu": 3208830000
+ },
+ "100K/1/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17115,
+  "nano_aiu": 2010500000
+ },
+ "100K/1/multi_session_reasoning/0": {
+  "score": 0.5,
+  "searches": 3,
+  "bytes_read": 50938,
+  "nano_aiu": 4364340000
+ },
+ "100K/1/multi_session_reasoning/1": {
+  "score": 0.75,
+  "searches": 11,
+  "bytes_read": 158431,
+  "nano_aiu": 12184020000
+ },
+ "100K/1/preference_following/0": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 34342,
+  "nano_aiu": 3277150000
+ },
+ "100K/1/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34478,
+  "nano_aiu": 3399860000
+ },
+ "100K/1/summarization/0": {
+  "score": 0.6,
+  "searches": 20,
+  "bytes_read": 282686,
+  "nano_aiu": 21374130000
+ },
+ "100K/1/summarization/1": {
+  "score": 0.4,
+  "searches": 14,
+  "bytes_read": 175172,
+  "nano_aiu": 13840520000
+ },
+ "100K/1/temporal_reasoning/0": {
+  "score": 0.25,
+  "searches": 2,
+  "bytes_read": 33730,
+  "nano_aiu": 3225010000
+ },
+ "100K/1/temporal_reasoning/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34090,
+  "nano_aiu": 3100100000
+ },
+ "100K/10/abstention/0": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 47995,
+  "nano_aiu": 4124200000
+ },
+ "100K/10/abstention/1": {
+  "score": 0.0,
+  "searches": 4,
+  "bytes_read": 49590,
+  "nano_aiu": 4372750000
+ },
+ "100K/10/contradiction_resolution/0": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 16951,
+  "nano_aiu": 1937450000
+ },
+ "100K/10/contradiction_resolution/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34044,
+  "nano_aiu": 3285310000
+ },
+ "100K/10/event_ordering/0": {
+  "score": 0.2,
+  "searches": 4,
+  "bytes_read": 51997,
+  "nano_aiu": 4544940000
+ },
+ "100K/10/event_ordering/1": {
+  "score": 0.8,
+  "searches": 6,
+  "bytes_read": 84080,
+  "nano_aiu": 7127470000
+ },
+ "100K/10/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17153,
+  "nano_aiu": 1965670000
+ },
+ "100K/10/information_extraction/1": {
+  "score": 0.3333333333333333,
+  "searches": 3,
+  "bytes_read": 50830,
+  "nano_aiu": 4640340000
+ },
+ "100K/10/instruction_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17068,
+  "nano_aiu": 1933640000
+ },
+ "100K/10/instruction_following/1": {
+  "score": 1.0,
+  "searches": 6,
+  "bytes_read": 99581,
+  "nano_aiu": 8222180000
+ },
+ "100K/10/knowledge_update/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33700,
+  "nano_aiu": 3266600000
+ },
+ "100K/10/knowledge_update/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 16862,
+  "nano_aiu": 2156720000
+ },
+ "100K/10/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17022,
+  "nano_aiu": 2083260000
+ },
+ "100K/10/multi_session_reasoning/1": {
+  "score": 0.875,
+  "searches": 3,
+  "bytes_read": 50444,
+  "nano_aiu": 4054200000
+ },
+ "100K/10/preference_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16732,
+  "nano_aiu": 2049750000
+ },
+ "100K/10/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34116,
+  "nano_aiu": 3250140000
+ },
+ "100K/10/summarization/0": {
+  "score": 0.3,
+  "searches": 5,
+  "bytes_read": 86391,
+  "nano_aiu": 7214560000
+ },
+ "100K/10/summarization/1": {
+  "score": 0.625,
+  "searches": 6,
+  "bytes_read": 102213,
+  "nano_aiu": 8427410000
+ },
+ "100K/10/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33928,
+  "nano_aiu": 3264890000
+ },
+ "100K/10/temporal_reasoning/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33704,
+  "nano_aiu": 3079630000
+ },
+ "100K/11/abstention/0": {
+  "score": 0.0,
+  "searches": 3,
+  "bytes_read": 42248,
+  "nano_aiu": 3712250000
+ },
+ "100K/11/abstention/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33956,
+  "nano_aiu": 3085210000
+ },
+ "100K/11/contradiction_resolution/0": {
+  "score": 0.125,
+  "searches": 2,
+  "bytes_read": 33373,
+  "nano_aiu": 3140610000
+ },
+ "100K/11/contradiction_resolution/1": {
+  "score": 0.875,
+  "searches": 2,
+  "bytes_read": 33482,
+  "nano_aiu": 3099560000
+ },
+ "100K/11/event_ordering/0": {
+  "score": 0.15555555555555556,
+  "searches": 3,
+  "bytes_read": 52205,
+  "nano_aiu": 4821210000
+ },
+ "100K/11/event_ordering/1": {
+  "score": 0.5,
+  "searches": 5,
+  "bytes_read": 85350,
+  "nano_aiu": 7009810000
+ },
+ "100K/11/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16656,
+  "nano_aiu": 1918960000
+ },
+ "100K/11/information_extraction/1": {
+  "score": 0.8333333333333334,
+  "searches": 1,
+  "bytes_read": 16674,
+  "nano_aiu": 1918040000
+ },
+ "100K/11/instruction_following/0": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 33360,
+  "nano_aiu": 3163000000
+ },
+ "100K/11/instruction_following/1": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 33516,
+  "nano_aiu": 3119220000
+ },
+ "100K/11/knowledge_update/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34208,
+  "nano_aiu": 3212090000
+ },
+ "100K/11/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33829,
+  "nano_aiu": 2939680000
+ },
+ "100K/11/multi_session_reasoning/0": {
+  "score": 0.5,
+  "searches": 4,
+  "bytes_read": 69376,
+  "nano_aiu": 5756810000
+ },
+ "100K/11/multi_session_reasoning/1": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 50063,
+  "nano_aiu": 4154830000
+ },
+ "100K/11/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33539,
+  "nano_aiu": 3113400000
+ },
+ "100K/11/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33576,
+  "nano_aiu": 3096240000
+ },
+ "100K/11/summarization/0": {
+  "score": 0.5833333333333334,
+  "searches": 7,
+  "bytes_read": 115506,
+  "nano_aiu": 9395830000
+ },
+ "100K/11/summarization/1": {
+  "score": 0.9,
+  "searches": 8,
+  "bytes_read": 113551,
+  "nano_aiu": 8825280000
+ },
+ "100K/11/temporal_reasoning/0": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 33360,
+  "nano_aiu": 2904620000
+ },
+ "100K/11/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33665,
+  "nano_aiu": 3045780000
+ },
+ "100K/12/abstention/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 32731,
+  "nano_aiu": 3044330000
+ },
+ "100K/12/abstention/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34296,
+  "nano_aiu": 3340520000
+ },
+ "100K/12/contradiction_resolution/0": {
+  "score": 0.75,
+  "searches": 1,
+  "bytes_read": 17031,
+  "nano_aiu": 1999200000
+ },
+ "100K/12/contradiction_resolution/1": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 34196,
+  "nano_aiu": 3131090000
+ },
+ "100K/12/event_ordering/0": {
+  "score": 0.4880952380952381,
+  "searches": 4,
+  "bytes_read": 69336,
+  "nano_aiu": 6086500000
+ },
+ "100K/12/event_ordering/1": {
+  "score": 0.2564102564102564,
+  "searches": 7,
+  "bytes_read": 69879,
+  "nano_aiu": 5842020000
+ },
+ "100K/12/information_extraction/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33892,
+  "nano_aiu": 3082980000
+ },
+ "100K/12/information_extraction/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16480,
+  "nano_aiu": 1934810000
+ },
+ "100K/12/instruction_following/0": {
+  "score": 0.5,
+  "searches": 4,
+  "bytes_read": 56623,
+  "nano_aiu": 4755090000
+ },
+ "100K/12/instruction_following/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 23568,
+  "nano_aiu": 2431910000
+ },
+ "100K/12/knowledge_update/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 16992,
+  "nano_aiu": 1912470000
+ },
+ "100K/12/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34170,
+  "nano_aiu": 3052010000
+ },
+ "100K/12/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33476,
+  "nano_aiu": 2972210000
+ },
+ "100K/12/multi_session_reasoning/1": {
+  "score": 0.75,
+  "searches": 5,
+  "bytes_read": 83568,
+  "nano_aiu": 6206090000
+ },
+ "100K/12/preference_following/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33247,
+  "nano_aiu": 3010130000
+ },
+ "100K/12/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33954,
+  "nano_aiu": 3261650000
+ },
+ "100K/12/summarization/0": {
+  "score": 0.625,
+  "searches": 5,
+  "bytes_read": 85713,
+  "nano_aiu": 6945000000
+ },
+ "100K/12/summarization/1": {
+  "score": 0.625,
+  "searches": 5,
+  "bytes_read": 85377,
+  "nano_aiu": 6867110000
+ },
+ "100K/12/temporal_reasoning/0": {
+  "score": 0.75,
+  "searches": 3,
+  "bytes_read": 50375,
+  "nano_aiu": 4108230000
+ },
+ "100K/12/temporal_reasoning/1": {
+  "score": 0.75,
+  "searches": 1,
+  "bytes_read": 16678,
+  "nano_aiu": 1882760000
+ },
+ "100K/13/abstention/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17198,
+  "nano_aiu": 2008860000
+ },
+ "100K/13/abstention/1": {
+  "score": 1.0,
+  "searches": 4,
+  "bytes_read": 52375,
+  "nano_aiu": 4740160000
+ },
+ "100K/13/contradiction_resolution/0": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 34130,
+  "nano_aiu": 3175650000
+ },
+ "100K/13/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 2,
+  "bytes_read": 33687,
+  "nano_aiu": 3138090000
+ },
+ "100K/13/event_ordering/0": {
+  "score": 0.6,
+  "searches": 3,
+  "bytes_read": 35664,
+  "nano_aiu": 3578090000
+ },
+ "100K/13/event_ordering/1": {
+  "score": 0.23076923076923078,
+  "searches": 4,
+  "bytes_read": 51902,
+  "nano_aiu": 5002090000
+ },
+ "100K/13/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17153,
+  "nano_aiu": 2076280000
+ },
+ "100K/13/information_extraction/1": {
+  "score": 0.75,
+  "searches": 3,
+  "bytes_read": 50623,
+  "nano_aiu": 4276300000
+ },
+ "100K/13/instruction_following/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34487,
+  "nano_aiu": 3352400000
+ },
+ "100K/13/instruction_following/1": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 34057,
+  "nano_aiu": 3284730000
+ },
+ "100K/13/knowledge_update/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34160,
+  "nano_aiu": 3174880000
+ },
+ "100K/13/knowledge_update/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 16988,
+  "nano_aiu": 1988690000
+ },
+ "100K/13/multi_session_reasoning/0": {
+  "score": 0.0,
+  "searches": 10,
+  "bytes_read": 151908,
+  "nano_aiu": 12771720000
+ },
+ "100K/13/multi_session_reasoning/1": {
+  "score": 0.5,
+  "searches": 4,
+  "bytes_read": 54426,
+  "nano_aiu": 4954710000
+ },
+ "100K/13/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34387,
+  "nano_aiu": 3216550000
+ },
+ "100K/13/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33839,
+  "nano_aiu": 3336760000
+ },
+ "100K/13/summarization/0": {
+  "score": 0.5,
+  "searches": 5,
+  "bytes_read": 80099,
+  "nano_aiu": 6884300000
+ },
+ "100K/13/summarization/1": {
+  "score": 0.4,
+  "searches": 6,
+  "bytes_read": 91202,
+  "nano_aiu": 8105420000
+ },
+ "100K/13/temporal_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16899,
+  "nano_aiu": 2004460000
+ },
+ "100K/13/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 16954,
+  "nano_aiu": 2050080000
+ },
+ "100K/14/abstention/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33658,
+  "nano_aiu": 3214460000
+ },
+ "100K/14/abstention/1": {
+  "score": 1.0,
+  "searches": 4,
+  "bytes_read": 51439,
+  "nano_aiu": 4753890000
+ },
+ "100K/14/contradiction_resolution/0": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 17112,
+  "nano_aiu": 2113190000
+ },
+ "100K/14/contradiction_resolution/1": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 17107,
+  "nano_aiu": 2052220000
+ },
+ "100K/14/event_ordering/0": {
+  "score": 0.3,
+  "searches": 3,
+  "bytes_read": 51746,
+  "nano_aiu": 4942780000
+ },
+ "100K/14/event_ordering/1": {
+  "score": 0.38876269792134754,
+  "searches": 3,
+  "bytes_read": 51623,
+  "nano_aiu": 4668390000
+ },
+ "100K/14/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17081,
+  "nano_aiu": 1989980000
+ },
+ "100K/14/information_extraction/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17029,
+  "nano_aiu": 2005740000
+ },
+ "100K/14/instruction_following/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34391,
+  "nano_aiu": 3336570000
+ },
+ "100K/14/instruction_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34725,
+  "nano_aiu": 3435080000
+ },
+ "100K/14/knowledge_update/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17362,
+  "nano_aiu": 2097230000
+ },
+ "100K/14/knowledge_update/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17211,
+  "nano_aiu": 2032690000
+ },
+ "100K/14/multi_session_reasoning/0": {
+  "score": 0.0,
+  "searches": 5,
+  "bytes_read": 69832,
+  "nano_aiu": 6430800000
+ },
+ "100K/14/multi_session_reasoning/1": {
+  "score": 0.75,
+  "searches": 9,
+  "bytes_read": 138637,
+  "nano_aiu": 11014140000
+ },
+ "100K/14/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34422,
+  "nano_aiu": 3372010000
+ },
+ "100K/14/preference_following/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34103,
+  "nano_aiu": 3218800000
+ },
+ "100K/14/summarization/0": {
+  "score": 0.375,
+  "searches": 5,
+  "bytes_read": 82396,
+  "nano_aiu": 7244870000
+ },
+ "100K/14/summarization/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 24939,
+  "nano_aiu": 2565640000
+ },
+ "100K/14/temporal_reasoning/0": {
+  "score": 0.0,
+  "searches": 3,
+  "bytes_read": 51235,
+  "nano_aiu": 4545790000
+ },
+ "100K/14/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34863,
+  "nano_aiu": 3353560000
+ },
+ "100K/15/abstention/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33579,
+  "nano_aiu": 3128660000
+ },
+ "100K/15/abstention/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 22304,
+  "nano_aiu": 2388590000
+ },
+ "100K/15/contradiction_resolution/0": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 33936,
+  "nano_aiu": 3186710000
+ },
+ "100K/15/contradiction_resolution/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34192,
+  "nano_aiu": 3342500000
+ },
+ "100K/15/event_ordering/0": {
+  "score": 0.5357142857142857,
+  "searches": 6,
+  "bytes_read": 82816,
+  "nano_aiu": 6948720000
+ },
+ "100K/15/event_ordering/1": {
+  "score": 0.675,
+  "searches": 4,
+  "bytes_read": 68489,
+  "nano_aiu": 5894710000
+ },
+ "100K/15/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16929,
+  "nano_aiu": 2022740000
+ },
+ "100K/15/information_extraction/1": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 51026,
+  "nano_aiu": 4377600000
+ },
+ "100K/15/instruction_following/0": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 34135,
+  "nano_aiu": 3355300000
+ },
+ "100K/15/instruction_following/1": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 33570,
+  "nano_aiu": 3266820000
+ },
+ "100K/15/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17119,
+  "nano_aiu": 2034160000
+ },
+ "100K/15/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34067,
+  "nano_aiu": 3192170000
+ },
+ "100K/15/multi_session_reasoning/0": {
+  "score": 0.0,
+  "searches": 5,
+  "bytes_read": 68874,
+  "nano_aiu": 5769130000
+ },
+ "100K/15/multi_session_reasoning/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34027,
+  "nano_aiu": 3112760000
+ },
+ "100K/15/preference_following/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34685,
+  "nano_aiu": 3489120000
+ },
+ "100K/15/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33892,
+  "nano_aiu": 3194330000
+ },
+ "100K/15/summarization/0": {
+  "score": 0.25,
+  "searches": 7,
+  "bytes_read": 119404,
+  "nano_aiu": 9905700000
+ },
+ "100K/15/summarization/1": {
+  "score": 0.4,
+  "searches": 2,
+  "bytes_read": 33994,
+  "nano_aiu": 3407330000
+ },
+ "100K/15/temporal_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16637,
+  "nano_aiu": 1955580000
+ },
+ "100K/15/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34055,
+  "nano_aiu": 3070570000
+ },
+ "100K/16/abstention/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33714,
+  "nano_aiu": 3288130000
+ },
+ "100K/16/abstention/1": {
+  "score": 1.0,
+  "searches": 7,
+  "bytes_read": 77781,
+  "nano_aiu": 6693410000
+ },
+ "100K/16/contradiction_resolution/0": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 33925,
+  "nano_aiu": 3156220000
+ },
+ "100K/16/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 17074,
+  "nano_aiu": 2015470000
+ },
+ "100K/16/event_ordering/0": {
+  "score": 0.3611111111111111,
+  "searches": 3,
+  "bytes_read": 50643,
+  "nano_aiu": 4248020000
+ },
+ "100K/16/event_ordering/1": {
+  "score": 0.7,
+  "searches": 3,
+  "bytes_read": 51390,
+  "nano_aiu": 4537070000
+ },
+ "100K/16/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16947,
+  "nano_aiu": 1960250000
+ },
+ "100K/16/information_extraction/1": {
+  "score": 0.8333333333333334,
+  "searches": 1,
+  "bytes_read": 16885,
+  "nano_aiu": 2066380000
+ },
+ "100K/16/instruction_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33568,
+  "nano_aiu": 3232140000
+ },
+ "100K/16/instruction_following/1": {
+  "score": 0.5,
+  "searches": 4,
+  "bytes_read": 68750,
+  "nano_aiu": 5980230000
+ },
+ "100K/16/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16747,
+  "nano_aiu": 1983200000
+ },
+ "100K/16/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34035,
+  "nano_aiu": 3212120000
+ },
+ "100K/16/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17103,
+  "nano_aiu": 2012530000
+ },
+ "100K/16/multi_session_reasoning/1": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 51285,
+  "nano_aiu": 4508470000
+ },
+ "100K/16/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33358,
+  "nano_aiu": 3241780000
+ },
+ "100K/16/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34023,
+  "nano_aiu": 3334710000
+ },
+ "100K/16/summarization/0": {
+  "score": 0.7142857142857143,
+  "searches": 5,
+  "bytes_read": 85139,
+  "nano_aiu": 6692880000
+ },
+ "100K/16/summarization/1": {
+  "score": 0.375,
+  "searches": 5,
+  "bytes_read": 78436,
+  "nano_aiu": 6427180000
+ },
+ "100K/16/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34213,
+  "nano_aiu": 3175440000
+ },
+ "100K/16/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33860,
+  "nano_aiu": 3236420000
+ },
+ "100K/17/abstention/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16605,
+  "nano_aiu": 1999780000
+ },
+ "100K/17/abstention/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34031,
+  "nano_aiu": 3301830000
+ },
+ "100K/17/contradiction_resolution/0": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 17063,
+  "nano_aiu": 1995220000
+ },
+ "100K/17/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 16947,
+  "nano_aiu": 1951660000
+ },
+ "100K/17/event_ordering/0": {
+  "score": 0.23333333333333334,
+  "searches": 5,
+  "bytes_read": 85252,
+  "nano_aiu": 7183190000
+ },
+ "100K/17/event_ordering/1": {
+  "score": 0.5606060606060606,
+  "searches": 4,
+  "bytes_read": 73451,
+  "nano_aiu": 6853690000
+ },
+ "100K/17/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16621,
+  "nano_aiu": 2009740000
+ },
+ "100K/17/information_extraction/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34027,
+  "nano_aiu": 3276560000
+ },
+ "100K/17/instruction_following/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33957,
+  "nano_aiu": 3287020000
+ },
+ "100K/17/instruction_following/1": {
+  "score": 0.0,
+  "searches": 3,
+  "bytes_read": 50940,
+  "nano_aiu": 4657920000
+ },
+ "100K/17/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16642,
+  "nano_aiu": 1883210000
+ },
+ "100K/17/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17000,
+  "nano_aiu": 1929690000
+ },
+ "100K/17/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16873,
+  "nano_aiu": 2099100000
+ },
+ "100K/17/multi_session_reasoning/1": {
+  "score": 0.0,
+  "searches": 4,
+  "bytes_read": 69270,
+  "nano_aiu": 6099110000
+ },
+ "100K/17/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33463,
+  "nano_aiu": 3471830000
+ },
+ "100K/17/preference_following/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17190,
+  "nano_aiu": 2135780000
+ },
+ "100K/17/summarization/0": {
+  "score": 0.4,
+  "searches": 6,
+  "bytes_read": 90285,
+  "nano_aiu": 7760610000
+ },
+ "100K/17/summarization/1": {
+  "score": 0.5,
+  "searches": 4,
+  "bytes_read": 68219,
+  "nano_aiu": 6402000000
+ },
+ "100K/17/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34215,
+  "nano_aiu": 3075460000
+ },
+ "100K/17/temporal_reasoning/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33965,
+  "nano_aiu": 3240310000
+ },
+ "100K/18/abstention/0": {
+  "score": 0.0,
+  "searches": 3,
+  "bytes_read": 50413,
+  "nano_aiu": 4264000000
+ },
+ "100K/18/abstention/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33924,
+  "nano_aiu": 3117200000
+ },
+ "100K/18/contradiction_resolution/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16903,
+  "nano_aiu": 1970230000
+ },
+ "100K/18/contradiction_resolution/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33686,
+  "nano_aiu": 3052210000
+ },
+ "100K/18/event_ordering/0": {
+  "score": 0.3787878787878788,
+  "searches": 5,
+  "bytes_read": 67792,
+  "nano_aiu": 5662810000
+ },
+ "100K/18/event_ordering/1": {
+  "score": 0.13636363636363635,
+  "searches": 6,
+  "bytes_read": 78419,
+  "nano_aiu": 6576250000
+ },
+ "100K/18/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16699,
+  "nano_aiu": 1926960000
+ },
+ "100K/18/information_extraction/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34676,
+  "nano_aiu": 3357100000
+ },
+ "100K/18/instruction_following/0": {
+  "score": 1.0,
+  "searches": 4,
+  "bytes_read": 64406,
+  "nano_aiu": 5721700000
+ },
+ "100K/18/instruction_following/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17212,
+  "nano_aiu": 1974320000
+ },
+ "100K/18/knowledge_update/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 16543,
+  "nano_aiu": 1918440000
+ },
+ "100K/18/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16824,
+  "nano_aiu": 1917250000
+ },
+ "100K/18/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16917,
+  "nano_aiu": 1990600000
+ },
+ "100K/18/multi_session_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33727,
+  "nano_aiu": 3177520000
+ },
+ "100K/18/preference_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17129,
+  "nano_aiu": 2106120000
+ },
+ "100K/18/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34079,
+  "nano_aiu": 3325390000
+ },
+ "100K/18/summarization/0": {
+  "score": 0.8,
+  "searches": 5,
+  "bytes_read": 86216,
+  "nano_aiu": 7093240000
+ },
+ "100K/18/summarization/1": {
+  "score": 0.5,
+  "searches": 4,
+  "bytes_read": 68240,
+  "nano_aiu": 5650400000
+ },
+ "100K/18/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34085,
+  "nano_aiu": 3145850000
+ },
+ "100K/18/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33839,
+  "nano_aiu": 3070490000
+ },
+ "100K/19/abstention/0": {
+  "score": 1.0,
+  "searches": 6,
+  "bytes_read": 85920,
+  "nano_aiu": 7044900000
+ },
+ "100K/19/abstention/1": {
+  "score": 1.0,
+  "searches": 8,
+  "bytes_read": 81671,
+  "nano_aiu": 6916010000
+ },
+ "100K/19/contradiction_resolution/0": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 17001,
+  "nano_aiu": 1914390000
+ },
+ "100K/19/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 16943,
+  "nano_aiu": 1889430000
+ },
+ "100K/19/event_ordering/0": {
+  "score": 0.42,
+  "searches": 4,
+  "bytes_read": 68691,
+  "nano_aiu": 5661400000
+ },
+ "100K/19/event_ordering/1": {
+  "score": 0.3469387755102041,
+  "searches": 8,
+  "bytes_read": 92981,
+  "nano_aiu": 7772190000
+ },
+ "100K/19/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16949,
+  "nano_aiu": 1936990000
+ },
+ "100K/19/information_extraction/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33212,
+  "nano_aiu": 3065840000
+ },
+ "100K/19/instruction_following/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33703,
+  "nano_aiu": 3284650000
+ },
+ "100K/19/instruction_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33374,
+  "nano_aiu": 3058690000
+ },
+ "100K/19/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 42820,
+  "nano_aiu": 3736870000
+ },
+ "100K/19/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33728,
+  "nano_aiu": 3154600000
+ },
+ "100K/19/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16855,
+  "nano_aiu": 1934190000
+ },
+ "100K/19/multi_session_reasoning/1": {
+  "score": 0.0,
+  "searches": 17,
+  "bytes_read": 141130,
+  "nano_aiu": 11463560000
+ },
+ "100K/19/preference_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16948,
+  "nano_aiu": 2010610000
+ },
+ "100K/19/preference_following/1": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 16854,
+  "nano_aiu": 2018820000
+ },
+ "100K/19/summarization/0": {
+  "score": 0.5,
+  "searches": 15,
+  "bytes_read": 193097,
+  "nano_aiu": 16528870000
+ },
+ "100K/19/summarization/1": {
+  "score": 0.25,
+  "searches": 5,
+  "bytes_read": 85208,
+  "nano_aiu": 6807710000
+ },
+ "100K/19/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 17108,
+  "nano_aiu": 1960020000
+ },
+ "100K/19/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33519,
+  "nano_aiu": 3059840000
+ },
+ "100K/2/abstention/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17467,
+  "nano_aiu": 2167260000
+ },
+ "100K/2/abstention/1": {
+  "score": 1.0,
+  "searches": 4,
+  "bytes_read": 58369,
+  "nano_aiu": 5135790000
+ },
+ "100K/2/contradiction_resolution/0": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 16998,
+  "nano_aiu": 2038650000
+ },
+ "100K/2/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 17255,
+  "nano_aiu": 2052470000
+ },
+ "100K/2/event_ordering/0": {
+  "score": 0.21999999999999997,
+  "searches": 6,
+  "bytes_read": 75689,
+  "nano_aiu": 6767670000
+ },
+ "100K/2/event_ordering/1": {
+  "score": 0.425,
+  "searches": 2,
+  "bytes_read": 34004,
+  "nano_aiu": 3443220000
+ },
+ "100K/2/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17265,
+  "nano_aiu": 2058700000
+ },
+ "100K/2/information_extraction/1": {
+  "score": 0.8333333333333334,
+  "searches": 1,
+  "bytes_read": 17176,
+  "nano_aiu": 2149080000
+ },
+ "100K/2/instruction_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16975,
+  "nano_aiu": 2079210000
+ },
+ "100K/2/instruction_following/1": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 47313,
+  "nano_aiu": 4345990000
+ },
+ "100K/2/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17140,
+  "nano_aiu": 2037480000
+ },
+ "100K/2/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16977,
+  "nano_aiu": 2014420000
+ },
+ "100K/2/multi_session_reasoning/0": {
+  "score": 0.0,
+  "searches": 24,
+  "bytes_read": 318187,
+  "nano_aiu": 26995700000
+ },
+ "100K/2/multi_session_reasoning/1": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 51476,
+  "nano_aiu": 4481870000
+ },
+ "100K/2/preference_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16803,
+  "nano_aiu": 2249110000
+ },
+ "100K/2/preference_following/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17197,
+  "nano_aiu": 2075990000
+ },
+ "100K/2/summarization/0": {
+  "score": 0.75,
+  "searches": 17,
+  "bytes_read": 170898,
+  "nano_aiu": 14661380000
+ },
+ "100K/2/summarization/1": {
+  "score": 0.75,
+  "searches": 5,
+  "bytes_read": 85805,
+  "nano_aiu": 7044680000
+ },
+ "100K/2/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 4,
+  "bytes_read": 59325,
+  "nano_aiu": 5125590000
+ },
+ "100K/2/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34041,
+  "nano_aiu": 3193950000
+ },
+ "100K/20/abstention/0": {
+  "score": 0.0,
+  "searches": 3,
+  "bytes_read": 50605,
+  "nano_aiu": 4212590000
+ },
+ "100K/20/abstention/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33746,
+  "nano_aiu": 3093130000
+ },
+ "100K/20/contradiction_resolution/0": {
+  "score": 0.125,
+  "searches": 2,
+  "bytes_read": 34126,
+  "nano_aiu": 3257490000
+ },
+ "100K/20/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 2,
+  "bytes_read": 34018,
+  "nano_aiu": 3159440000
+ },
+ "100K/20/event_ordering/0": {
+  "score": 0.4358974358974359,
+  "searches": 8,
+  "bytes_read": 88863,
+  "nano_aiu": 7924890000
+ },
+ "100K/20/event_ordering/1": {
+  "score": 0.8666666666666667,
+  "searches": 5,
+  "bytes_read": 86253,
+  "nano_aiu": 7346090000
+ },
+ "100K/20/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16433,
+  "nano_aiu": 1823950000
+ },
+ "100K/20/information_extraction/1": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 50854,
+  "nano_aiu": 4207700000
+ },
+ "100K/20/instruction_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16872,
+  "nano_aiu": 2171200000
+ },
+ "100K/20/instruction_following/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16763,
+  "nano_aiu": 1985430000
+ },
+ "100K/20/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33997,
+  "nano_aiu": 3480120000
+ },
+ "100K/20/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33860,
+  "nano_aiu": 3244500000
+ },
+ "100K/20/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34199,
+  "nano_aiu": 3312860000
+ },
+ "100K/20/multi_session_reasoning/1": {
+  "score": 0.5,
+  "searches": 9,
+  "bytes_read": 136961,
+  "nano_aiu": 10769940000
+ },
+ "100K/20/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33700,
+  "nano_aiu": 3108350000
+ },
+ "100K/20/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33439,
+  "nano_aiu": 3074870000
+ },
+ "100K/20/summarization/0": {
+  "score": 0.375,
+  "searches": 11,
+  "bytes_read": 90829,
+  "nano_aiu": 7673760000
+ },
+ "100K/20/summarization/1": {
+  "score": 0.7,
+  "searches": 15,
+  "bytes_read": 184863,
+  "nano_aiu": 14631210000
+ },
+ "100K/20/temporal_reasoning/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33937,
+  "nano_aiu": 3170160000
+ },
+ "100K/20/temporal_reasoning/1": {
+  "score": 1.0,
+  "searches": 14,
+  "bytes_read": 207565,
+  "nano_aiu": 17756330000
+ },
+ "100K/3/abstention/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34144,
+  "nano_aiu": 3272720000
+ },
+ "100K/3/abstention/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17138,
+  "nano_aiu": 2018250000
+ },
+ "100K/3/contradiction_resolution/0": {
+  "score": 0.125,
+  "searches": 1,
+  "bytes_read": 17661,
+  "nano_aiu": 2065210000
+ },
+ "100K/3/contradiction_resolution/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17018,
+  "nano_aiu": 1991920000
+ },
+ "100K/3/event_ordering/0": {
+  "score": 0.125,
+  "searches": 2,
+  "bytes_read": 34744,
+  "nano_aiu": 3429720000
+ },
+ "100K/3/event_ordering/1": {
+  "score": 0.14285714285714285,
+  "searches": 4,
+  "bytes_read": 68849,
+  "nano_aiu": 5687930000
+ },
+ "100K/3/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16944,
+  "nano_aiu": 1986960000
+ },
+ "100K/3/information_extraction/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34134,
+  "nano_aiu": 3293920000
+ },
+ "100K/3/instruction_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34133,
+  "nano_aiu": 3236540000
+ },
+ "100K/3/instruction_following/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17147,
+  "nano_aiu": 2026910000
+ },
+ "100K/3/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33984,
+  "nano_aiu": 3154390000
+ },
+ "100K/3/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17459,
+  "nano_aiu": 2062260000
+ },
+ "100K/3/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16907,
+  "nano_aiu": 2025750000
+ },
+ "100K/3/multi_session_reasoning/1": {
+  "score": 0.875,
+  "searches": 6,
+  "bytes_read": 85169,
+  "nano_aiu": 6946470000
+ },
+ "100K/3/preference_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17439,
+  "nano_aiu": 2188690000
+ },
+ "100K/3/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34603,
+  "nano_aiu": 3491620000
+ },
+ "100K/3/summarization/0": {
+  "score": 0.625,
+  "searches": 18,
+  "bytes_read": 212027,
+  "nano_aiu": 17540370000
+ },
+ "100K/3/summarization/1": {
+  "score": 0.3,
+  "searches": 10,
+  "bytes_read": 162832,
+  "nano_aiu": 12603930000
+ },
+ "100K/3/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33928,
+  "nano_aiu": 3063030000
+ },
+ "100K/3/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33558,
+  "nano_aiu": 3084050000
+ },
+ "100K/4/abstention/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17531,
+  "nano_aiu": 2223720000
+ },
+ "100K/4/abstention/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 26898,
+  "nano_aiu": 3062970000
+ },
+ "100K/4/contradiction_resolution/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17923,
+  "nano_aiu": 2307160000
+ },
+ "100K/4/contradiction_resolution/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 35539,
+  "nano_aiu": 3714460000
+ },
+ "100K/4/event_ordering/0": {
+  "score": 0.12626262626262624,
+  "searches": 8,
+  "bytes_read": 76460,
+  "nano_aiu": 7230350000
+ },
+ "100K/4/event_ordering/1": {
+  "score": 0.15384615384615385,
+  "searches": 6,
+  "bytes_read": 112228,
+  "nano_aiu": 9711120000
+ },
+ "100K/4/information_extraction/0": {
+  "score": 0.8333333333333334,
+  "searches": 2,
+  "bytes_read": 35967,
+  "nano_aiu": 3705640000
+ },
+ "100K/4/information_extraction/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 35535,
+  "nano_aiu": 3740090000
+ },
+ "100K/4/instruction_following/0": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 17613,
+  "nano_aiu": 2417980000
+ },
+ "100K/4/instruction_following/1": {
+  "score": 1.0,
+  "searches": 5,
+  "bytes_read": 88605,
+  "nano_aiu": 8347300000
+ },
+ "100K/4/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17291,
+  "nano_aiu": 2097990000
+ },
+ "100K/4/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17389,
+  "nano_aiu": 2107510000
+ },
+ "100K/4/multi_session_reasoning/0": {
+  "score": 1.0,
+  "searches": 4,
+  "bytes_read": 44579,
+  "nano_aiu": 4474250000
+ },
+ "100K/4/multi_session_reasoning/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34807,
+  "nano_aiu": 3451350000
+ },
+ "100K/4/preference_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17567,
+  "nano_aiu": 2398130000
+ },
+ "100K/4/preference_following/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 18024,
+  "nano_aiu": 2325240000
+ },
+ "100K/4/summarization/0": {
+  "score": 0.9,
+  "searches": 9,
+  "bytes_read": 132864,
+  "nano_aiu": 12506620000
+ },
+ "100K/4/summarization/1": {
+  "score": 0.3,
+  "searches": 4,
+  "bytes_read": 69546,
+  "nano_aiu": 6145110000
+ },
+ "100K/4/temporal_reasoning/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34714,
+  "nano_aiu": 3283520000
+ },
+ "100K/4/temporal_reasoning/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34411,
+  "nano_aiu": 3382850000
+ },
+ "100K/5/abstention/0": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 47584,
+  "nano_aiu": 4311230000
+ },
+ "100K/5/abstention/1": {
+  "score": 0.0,
+  "searches": 6,
+  "bytes_read": 77257,
+  "nano_aiu": 7145110000
+ },
+ "100K/5/contradiction_resolution/0": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 34652,
+  "nano_aiu": 3413780000
+ },
+ "100K/5/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 17002,
+  "nano_aiu": 2078150000
+ },
+ "100K/5/event_ordering/0": {
+  "score": 0.5606060606060606,
+  "searches": 5,
+  "bytes_read": 77262,
+  "nano_aiu": 6800490000
+ },
+ "100K/5/event_ordering/1": {
+  "score": 0.26666666666666666,
+  "searches": 5,
+  "bytes_read": 70143,
+  "nano_aiu": 6411700000
+ },
+ "100K/5/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17186,
+  "nano_aiu": 2057900000
+ },
+ "100K/5/information_extraction/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17635,
+  "nano_aiu": 2173810000
+ },
+ "100K/5/instruction_following/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17803,
+  "nano_aiu": 2242710000
+ },
+ "100K/5/instruction_following/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 16830,
+  "nano_aiu": 2070640000
+ },
+ "100K/5/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17064,
+  "nano_aiu": 1989780000
+ },
+ "100K/5/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17000,
+  "nano_aiu": 2019710000
+ },
+ "100K/5/multi_session_reasoning/0": {
+  "score": 0.0,
+  "searches": 7,
+  "bytes_read": 100274,
+  "nano_aiu": 9239540000
+ },
+ "100K/5/multi_session_reasoning/1": {
+  "score": 0.0,
+  "searches": 10,
+  "bytes_read": 111772,
+  "nano_aiu": 9763460000
+ },
+ "100K/5/preference_following/0": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17363,
+  "nano_aiu": 2211550000
+ },
+ "100K/5/preference_following/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17121,
+  "nano_aiu": 2161290000
+ },
+ "100K/5/summarization/0": {
+  "score": 0.7,
+  "searches": 4,
+  "bytes_read": 69691,
+  "nano_aiu": 6269040000
+ },
+ "100K/5/summarization/1": {
+  "score": 0.7,
+  "searches": 4,
+  "bytes_read": 68614,
+  "nano_aiu": 6086350000
+ },
+ "100K/5/temporal_reasoning/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17282,
+  "nano_aiu": 2013630000
+ },
+ "100K/5/temporal_reasoning/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17114,
+  "nano_aiu": 2080680000
+ },
+ "100K/6/abstention/0": {
+  "score": 1.0,
+  "searches": 5,
+  "bytes_read": 59856,
+  "nano_aiu": 5177210000
+ },
+ "100K/6/abstention/1": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 40820,
+  "nano_aiu": 3597730000
+ },
+ "100K/6/contradiction_resolution/0": {
+  "score": 0.25,
+  "searches": 2,
+  "bytes_read": 33576,
+  "nano_aiu": 3001570000
+ },
+ "100K/6/contradiction_resolution/1": {
+  "score": 0.75,
+  "searches": 2,
+  "bytes_read": 34497,
+  "nano_aiu": 3282480000
+ },
+ "100K/6/event_ordering/0": {
+  "score": 0.14705882352941174,
+  "searches": 5,
+  "bytes_read": 76032,
+  "nano_aiu": 6047300000
+ },
+ "100K/6/event_ordering/1": {
+  "score": 0.14285714285714285,
+  "searches": 7,
+  "bytes_read": 120449,
+  "nano_aiu": 9290140000
+ },
+ "100K/6/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16977,
+  "nano_aiu": 1914770000
+ },
+ "100K/6/information_extraction/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33796,
+  "nano_aiu": 2985660000
+ },
+ "100K/6/instruction_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33391,
+  "nano_aiu": 3035970000
+ },
+ "100K/6/instruction_following/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33560,
+  "nano_aiu": 2987670000
+ },
+ "100K/6/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34396,
+  "nano_aiu": 3167530000
+ },
+ "100K/6/knowledge_update/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 16905,
+  "nano_aiu": 1903030000
+ },
+ "100K/6/multi_session_reasoning/0": {
+  "score": 0.2,
+  "searches": 2,
+  "bytes_read": 33698,
+  "nano_aiu": 2935600000
+ },
+ "100K/6/multi_session_reasoning/1": {
+  "score": 0.625,
+  "searches": 3,
+  "bytes_read": 50852,
+  "nano_aiu": 4481080000
+ },
+ "100K/6/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34056,
+  "nano_aiu": 3217810000
+ },
+ "100K/6/preference_following/1": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 16954,
+  "nano_aiu": 2053240000
+ },
+ "100K/6/summarization/0": {
+  "score": 0.4,
+  "searches": 5,
+  "bytes_read": 86373,
+  "nano_aiu": 7261080000
+ },
+ "100K/6/summarization/1": {
+  "score": 0.375,
+  "searches": 4,
+  "bytes_read": 68720,
+  "nano_aiu": 5812680000
+ },
+ "100K/6/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34110,
+  "nano_aiu": 3024030000
+ },
+ "100K/6/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 32894,
+  "nano_aiu": 2879320000
+ },
+ "100K/7/abstention/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34194,
+  "nano_aiu": 3283140000
+ },
+ "100K/7/abstention/1": {
+  "score": 0.0,
+  "searches": 6,
+  "bytes_read": 85281,
+  "nano_aiu": 6826490000
+ },
+ "100K/7/contradiction_resolution/0": {
+  "score": 0.125,
+  "searches": 2,
+  "bytes_read": 34178,
+  "nano_aiu": 3249390000
+ },
+ "100K/7/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 2,
+  "bytes_read": 33740,
+  "nano_aiu": 3255360000
+ },
+ "100K/7/event_ordering/0": {
+  "score": 0.14285714285714285,
+  "searches": 3,
+  "bytes_read": 52205,
+  "nano_aiu": 4778320000
+ },
+ "100K/7/event_ordering/1": {
+  "score": 0.2,
+  "searches": 9,
+  "bytes_read": 59788,
+  "nano_aiu": 5735380000
+ },
+ "100K/7/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16595,
+  "nano_aiu": 1955460000
+ },
+ "100K/7/information_extraction/1": {
+  "score": 0.6666666666666666,
+  "searches": 4,
+  "bytes_read": 67816,
+  "nano_aiu": 5648860000
+ },
+ "100K/7/instruction_following/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33928,
+  "nano_aiu": 3422060000
+ },
+ "100K/7/instruction_following/1": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 16790,
+  "nano_aiu": 2073180000
+ },
+ "100K/7/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33952,
+  "nano_aiu": 3155480000
+ },
+ "100K/7/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17217,
+  "nano_aiu": 2014150000
+ },
+ "100K/7/multi_session_reasoning/0": {
+  "score": 0.7,
+  "searches": 6,
+  "bytes_read": 102729,
+  "nano_aiu": 8456490000
+ },
+ "100K/7/multi_session_reasoning/1": {
+  "score": 0.0,
+  "searches": 8,
+  "bytes_read": 128960,
+  "nano_aiu": 10197910000
+ },
+ "100K/7/preference_following/0": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 16821,
+  "nano_aiu": 1962650000
+ },
+ "100K/7/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34404,
+  "nano_aiu": 3365670000
+ },
+ "100K/7/summarization/0": {
+  "score": 0.5,
+  "searches": 10,
+  "bytes_read": 116414,
+  "nano_aiu": 9296900000
+ },
+ "100K/7/summarization/1": {
+  "score": 0.125,
+  "searches": 14,
+  "bytes_read": 195282,
+  "nano_aiu": 15282300000
+ },
+ "100K/7/temporal_reasoning/0": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 34014,
+  "nano_aiu": 3204560000
+ },
+ "100K/7/temporal_reasoning/1": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 50404,
+  "nano_aiu": 4426990000
+ },
+ "100K/8/abstention/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34271,
+  "nano_aiu": 3327120000
+ },
+ "100K/8/abstention/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 32525,
+  "nano_aiu": 2902540000
+ },
+ "100K/8/contradiction_resolution/0": {
+  "score": 0.0,
+  "searches": 8,
+  "bytes_read": 85750,
+  "nano_aiu": 7594880000
+ },
+ "100K/8/contradiction_resolution/1": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 17233,
+  "nano_aiu": 2021940000
+ },
+ "100K/8/event_ordering/0": {
+  "score": 0.09999999999999998,
+  "searches": 4,
+  "bytes_read": 68332,
+  "nano_aiu": 5765470000
+ },
+ "100K/8/event_ordering/1": {
+  "score": 0.5,
+  "searches": 4,
+  "bytes_read": 67957,
+  "nano_aiu": 5622810000
+ },
+ "100K/8/information_extraction/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16639,
+  "nano_aiu": 1920640000
+ },
+ "100K/8/information_extraction/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33614,
+  "nano_aiu": 3024640000
+ },
+ "100K/8/instruction_following/0": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 17009,
+  "nano_aiu": 1959410000
+ },
+ "100K/8/instruction_following/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17073,
+  "nano_aiu": 1937690000
+ },
+ "100K/8/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16764,
+  "nano_aiu": 1964200000
+ },
+ "100K/8/knowledge_update/1": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16858,
+  "nano_aiu": 1999210000
+ },
+ "100K/8/multi_session_reasoning/0": {
+  "score": 0.0,
+  "searches": 8,
+  "bytes_read": 101680,
+  "nano_aiu": 8619430000
+ },
+ "100K/8/multi_session_reasoning/1": {
+  "score": 0.6666666666666666,
+  "searches": 6,
+  "bytes_read": 101507,
+  "nano_aiu": 7791080000
+ },
+ "100K/8/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 33702,
+  "nano_aiu": 3101050000
+ },
+ "100K/8/preference_following/1": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 16994,
+  "nano_aiu": 1991010000
+ },
+ "100K/8/summarization/0": {
+  "score": 0.5,
+  "searches": 11,
+  "bytes_read": 85823,
+  "nano_aiu": 7749650000
+ },
+ "100K/8/summarization/1": {
+  "score": 0.3,
+  "searches": 12,
+  "bytes_read": 153337,
+  "nano_aiu": 13850280000
+ },
+ "100K/8/temporal_reasoning/0": {
+  "score": 0.25,
+  "searches": 3,
+  "bytes_read": 51402,
+  "nano_aiu": 4438570000
+ },
+ "100K/8/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 1,
+  "bytes_read": 17199,
+  "nano_aiu": 1990040000
+ },
+ "100K/9/abstention/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34063,
+  "nano_aiu": 2959230000
+ },
+ "100K/9/abstention/1": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 33931,
+  "nano_aiu": 3008630000
+ },
+ "100K/9/contradiction_resolution/0": {
+  "score": 0.25,
+  "searches": 1,
+  "bytes_read": 17039,
+  "nano_aiu": 1978680000
+ },
+ "100K/9/contradiction_resolution/1": {
+  "score": 0.25,
+  "searches": 2,
+  "bytes_read": 33738,
+  "nano_aiu": 2877730000
+ },
+ "100K/9/event_ordering/0": {
+  "score": 0.14285714285714285,
+  "searches": 3,
+  "bytes_read": 50686,
+  "nano_aiu": 4197030000
+ },
+ "100K/9/event_ordering/1": {
+  "score": 0.5333333333333333,
+  "searches": 5,
+  "bytes_read": 85366,
+  "nano_aiu": 7026450000
+ },
+ "100K/9/information_extraction/0": {
+  "score": 1.0,
+  "searches": 3,
+  "bytes_read": 50504,
+  "nano_aiu": 4010000000
+ },
+ "100K/9/information_extraction/1": {
+  "score": 0.8333333333333334,
+  "searches": 2,
+  "bytes_read": 33597,
+  "nano_aiu": 3074570000
+ },
+ "100K/9/instruction_following/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 16592,
+  "nano_aiu": 1993210000
+ },
+ "100K/9/instruction_following/1": {
+  "score": 0.0,
+  "searches": 3,
+  "bytes_read": 50088,
+  "nano_aiu": 4254400000
+ },
+ "100K/9/knowledge_update/0": {
+  "score": 1.0,
+  "searches": 1,
+  "bytes_read": 17195,
+  "nano_aiu": 2085490000
+ },
+ "100K/9/knowledge_update/1": {
+  "score": 0.0,
+  "searches": 1,
+  "bytes_read": 17274,
+  "nano_aiu": 2099390000
+ },
+ "100K/9/multi_session_reasoning/0": {
+  "score": 0.3,
+  "searches": 5,
+  "bytes_read": 83749,
+  "nano_aiu": 6356110000
+ },
+ "100K/9/multi_session_reasoning/1": {
+  "score": 0.6666666666666666,
+  "searches": 6,
+  "bytes_read": 76779,
+  "nano_aiu": 6531940000
+ },
+ "100K/9/preference_following/0": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34166,
+  "nano_aiu": 3292330000
+ },
+ "100K/9/preference_following/1": {
+  "score": 1.0,
+  "searches": 2,
+  "bytes_read": 34465,
+  "nano_aiu": 3355560000
+ },
+ "100K/9/summarization/0": {
+  "score": 0.5,
+  "searches": 10,
+  "bytes_read": 146121,
+  "nano_aiu": 12245760000
+ },
+ "100K/9/summarization/1": {
+  "score": 0.5,
+  "searches": 6,
+  "bytes_read": 110226,
+  "nano_aiu": 8160960000
+ },
+ "100K/9/temporal_reasoning/0": {
+  "score": 0.0,
+  "searches": 2,
+  "bytes_read": 34483,
+  "nano_aiu": 3199860000
+ },
+ "100K/9/temporal_reasoning/1": {
+  "score": 0.5,
+  "searches": 2,
+  "bytes_read": 33952,
+  "nano_aiu": 3178540000
+ }
+}
