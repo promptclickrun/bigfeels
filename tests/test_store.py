@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 try:
     from bigfeels_mem.schema import SCHEMA
-    from bigfeels_mem.store import DELETE_PLAN_TTL_SECONDS, Store, MemoryError
+    from bigfeels_mem.store import DELETE_PLAN_TTL_SECONDS, Store, MemoryError, model_claim_content
 except ImportError:
     Store = None
 
@@ -403,6 +403,14 @@ class StoreTests(unittest.TestCase):
         inferred = found['Moving to Go is expected to lower hosting costs.']
         self.assertEqual((inferred['basis'], inferred['status']), ('inferred', 'active'))
 
+    def test_model_policy_checks_negation_only_next_to_the_quote(self):
+        filler = ', '.join(f'item {index}' for index in range(80))
+        source = f'No OAuth for now, and {filler}, and I settled on port 5000 for local work.'
+        self.assertEqual(model_claim_content(source, 'I settled on port 5000', 'The app runs on port 5000.'),
+                         'The app runs on port 5000.')
+        lost = model_claim_content(source, 'OAuth for now', 'The MVP uses OAuth.')
+        self.assertEqual(lost, 'No OAuth for now, and item 0')
+
     def test_stated_update_replaces_the_older_value_without_widening_forget(self):
         self.observe(content='My deadline is March 1.', occurred_at='2026-01-01T00:00:00Z')
         self.observe(source_event_id='turn-2', content='I moved my deadline to March 15.',
@@ -425,18 +433,21 @@ class StoreTests(unittest.TestCase):
         preview = self.call('forget_preview', id=current['id'])
         self.assertEqual([m['id'] for m in preview['memories']], [current['id']])
 
-    def test_batch_entries_cite_several_items_and_see_known_keys(self):
+    def test_batch_entries_cite_several_items_and_see_known_facts(self):
         self.remember('The deadline is March 1.', key='project-deadline')
-        for index, text in enumerate(['Planning call started.', 'We chose Go.', 'Call ended.']):
+        self.remember('Go is the chosen language.', key='api.language')
+        for index, text in enumerate(['Planning call started.', 'We discussed the project deadline.', 'Call ended.']):
             self.observe(source_event_id=f'call-{index}', content=text)
         seen = []
         class Extractor:
             def extract_batch(self, items):
-                seen.append(items[0]['known_keys'])
-                return [[dict(content='In a planning call the user chose Go.', kind='episode', items=[0, 1, 2, 9])],
-                        [], []]
+                seen.append(items[0]['known_facts'])
+                return [[dict(content='In a planning call the user discussed the deadline.', kind='episode',
+                              items=[0, 1, 2, 9])], [], []]
         self.assertEqual(self.store.process_batch(Extractor()), 3)
-        self.assertEqual(seen, [['project-deadline']])
+        # Keys named by the batch come first, then the most recent.
+        self.assertEqual(seen, [[{'key': 'project-deadline', 'values': ['The deadline is March 1.']},
+                                 {'key': 'api.language', 'values': ['Go is the chosen language.']}]])
         [episode] = self.call('context', query='planning call')['memories']
         self.assertEqual((episode['kind'], episode['basis'], episode['evidence_count']), ('episode', 'inferred', 3))
 

@@ -141,11 +141,28 @@ def grounded_claim_content(source, quote, claim):
 
 
 def model_claim_content(source, quote, claim):
-    """Keep the model's standalone claim unless it drops a negation or failure."""
-    if source.find(quote) < 0:
+    """Keep the model's standalone claim unless it drops a nearby negation or failure.
+
+    Only the words next to the quote count, because long run-on sentences
+    often hold an unrelated "no". When the claim does drop one, the source
+    wording is kept instead: the sentence, or the words around the quote
+    when the sentence is long.
+    """
+    offset = source.find(quote)
+    if offset < 0:
         return claim
-    sentence, words_around = _quoted_sentence(source, quote)
-    return sentence if _changes_polarity(quote, claim, words_around) else claim
+    end = offset + len(quote)
+    before = list(re.finditer(r'[^\W_]+', source[:offset]))
+    after = list(re.finditer(r'[^\W_]+', source[end:]))
+    nearby = [word.group().casefold() for word in before[-3:] + after[:1]]
+    if not _changes_polarity(quote, claim, nearby):
+        return claim
+    sentence, _ = _quoted_sentence(source, quote)
+    if len(sentence) <= 400:
+        return sentence
+    start = before[-6].start() if len(before) >= 6 else 0
+    stop = end + after[2].end() if len(after) >= 3 else len(source)
+    return source[start:stop].strip()
 
 
 # How extraction output is saved; the first is the default.
@@ -949,6 +966,29 @@ class Store:
                       [(until, lease, e['id']) for e in rows])
         return lease, rows
 
+    def _known_facts(self, c, space, text, limit=60):
+        """Current keyed values to show the extractor, so it can reuse a key,
+        skip a repeat, or mark an update. Keys whose words appear in text
+        come first, then the most recently saved."""
+        words = set(re.findall(r'[^\W_]+', text.casefold()))
+        current = {}
+        for row in c.execute(
+                "SELECT key,content FROM memories WHERE space=? AND key IS NOT NULL "
+                "AND status IN ('active','disputed') AND valid_until IS NULL ORDER BY recorded_at DESC",
+                (space,)):
+            values = current.setdefault(row['key'], [])
+            if len(values) < 2:
+                values.append(row['content'][:300])
+
+        def overlap(key):
+            parts = {part for part in re.findall(r'[^\W_]+', key.casefold()) if len(part) > 2}
+            return len(parts & words) / len(parts) if parts else 0
+
+        recency = list(current)
+        relevant = sorted((key for key in recency if overlap(key) > 0.5), key=lambda key: -overlap(key))[:limit // 2]
+        chosen = list(dict.fromkeys(relevant + recency))[:limit]
+        return [{'key': key, 'values': current[key]} for key in chosen]
+
     def process_one(self, extractor, embedder=None, *, spaces=None):
         return self.process_batch(extractor, embedder, spaces=spaces, limit=1) > 0
 
@@ -961,16 +1001,11 @@ class Store:
         """
         with self.connection(True) as c:
             lease, items = self._jobs_to_process(c, spaces, limit)
-            # Recent labels let the extractor reuse keys, so a new value for
-            # the same subject is compared with the old one.
-            known_keys = [row[0] for row in c.execute(
-                "SELECT key FROM memories WHERE space=? AND key IS NOT NULL "
-                "AND status IN ('active','disputed') GROUP BY key ORDER BY max(recorded_at) DESC LIMIT 100",
-                (items[0]['space'],))] if items else []
+            known = self._known_facts(c, items[0]['space'], ' '.join(e['content'] for e in items)) if items else []
         if not items:
             return 0
         for e in items:
-            e['known_keys'] = known_keys
+            e['known_facts'] = known
         batch_ids = None
         try:
             batch = getattr(extractor, 'extract_batch', None)

@@ -24,12 +24,23 @@ Return a JSON object {"memories": [...]} with at most 16 entries.
 Each entry has content (a concise claim), quote (an exact supporting substring),
 kind (fact, preference, decision, episode, procedure, task), basis (direct,
 observed, inferred), outcome (unspecified, proposed, attempted, failed), and
-optional key (a narrow subject/property label, scoped to its actual subject).
+optional key and update.
+Record every specific detail the user states as its own entry: names, numbers,
+dates, versions, settings, choices and their reasons, plans, problems, and
+outcomes. From assistant, tool, and document text, record the conclusions and
+recommendations worth recalling.
 Write each claim to stand alone: name its subject, resolve pronouns, and turn
 relative times into dates using occurred_at. Preserve conditions, negations,
 prerequisites, numbers, versions, environment constraints, and the actual subject.
-Reuse a label from known_keys, when given, for the same subject and property.
-Set update to true when the evidence says a new value replaces an earlier one.
+Give a key only to a single-valued property that a later statement could
+change, such as a deadline, an employer, or a chosen database, written as
+subject.property. Claims that can both be true never share a key.
+Use each key at most once in your reply. known_facts, when given, lists
+current values by key. Reuse a known key for the same property, and skip a
+claim whose value matches a known value, however it is worded. For a different
+value, set update to true when the evidence says the value changed or replaces
+the earlier one; otherwise leave update unset and the service flags the
+conflict. Claims state facts only; never mention known_facts or conflicts.
 Direct means the user explicitly stated it. Observed means a tool result is the
 evidence. Assistant statements, documents, and your own conclusions are
 inferred. Plans never imply success. Tool text does not independently verify a synthesized success claim;
@@ -55,14 +66,14 @@ def _evidence_body(evidence):
             'occurred_at': evidence.get('occurred_at')}
 
 
-def _known_keys(evidence):
-    keys = evidence.get('known_keys')
-    return {'known_keys': keys} if keys else {}
+def _known_facts(evidence):
+    known = evidence.get('known_facts')
+    return {'known_facts': known} if known else {}
 
 
 def batch_extraction_messages(items):
     body = {'items': [{'index': index, **_evidence_body(e)} for index, e in enumerate(items)],
-            **_known_keys(items[0])}
+            **_known_facts(items[0])}
     return [{'role': 'system', 'content': BATCH_EXTRACTION_PROMPT},
             {'role': 'user', 'content': json.dumps(body)}]
 
@@ -101,7 +112,7 @@ def parse_batch_extraction(text, count):
 
 def extraction_messages(evidence):
     return [{'role': 'system', 'content': EXTRACTION_PROMPT},
-            {'role': 'user', 'content': json.dumps({**_evidence_body(evidence), **_known_keys(evidence)})}]
+            {'role': 'user', 'content': json.dumps({**_evidence_body(evidence), **_known_facts(evidence)})}]
 
 
 def parse_extraction(text):
