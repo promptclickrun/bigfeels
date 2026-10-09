@@ -57,6 +57,8 @@ Configure the MCP command as `bigfeels-mem` with arguments `mcp`. Use the execut
 
 MCP exposes explicit remember, context, search, inspect, correct, deletion preview, token-confirmed deletion, status, export, observe, and bounded process tools in direct-local and authenticated loopback HTTP modes. Explicit saves and recall work without a model provider. `memory_observe` only queues source evidence. MCP cannot see an arbitrary host's conversation lifecycle, so it does not promise universal automatic capture. `memory_process` needs a configured extractor; inspect `memory_status` for pending, failed, retry, and provider state. See [docs/advanced.md](docs/advanced.md).
 
+Agents recall best by searching for themselves: a few focused `memory_context` calls of 8,000–16,000 bytes each. On BEAM, that beat a single 96,000-byte context by 2.5 points at about two-thirds of the cost ([results](benchmarks/results/2026-10-08-beam-answers-agent.md)).
+
 For a capture-free integration, add `--explicit-only` after `mcp`. That opt-in mode hides and rejects observe/process, rejects `--url`, and bypasses provider configuration so recall remains local. A host running an older Python can launch a separate Python 3.11+ stdio process instead of importing the engine. The bounded Scout deployment pattern, Windows paths-with-spaces JSON, customer isolation, migration boundary, and rollback procedure are in [docs/scout-pilot.md](docs/scout-pilot.md).
 
 ## HTTP API and browser workspace
