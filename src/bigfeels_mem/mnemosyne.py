@@ -11,7 +11,7 @@ from pathlib import Path
 import sqlite3
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .store import MemoryError, required
+from .store import MemoryError, index_claims, required
 
 
 MAX_SOURCE_BYTES = 64_000_000
@@ -280,6 +280,7 @@ def apply_import(store, plan):
                         columns = ','.join(row)
                         placeholders = ','.join('?' for _ in row)
                         connection.execute(f'INSERT INTO {table} ({columns}) VALUES ({placeholders})', tuple(row.values()))
+                index_claims(connection)
                 status = 'imported'
             imported = {table: [dict(row) for row in connection.execute(f'SELECT * FROM {table}')]
                         for table in TABLES}

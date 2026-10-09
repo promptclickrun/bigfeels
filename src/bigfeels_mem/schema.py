@@ -25,6 +25,15 @@ END""",
     f"INSERT OR REPLACE INTO metadata VALUES ('recall_index','{RECALL_INDEX}')",
 )
 
+# Saves find repeated claims through a digest of each memory's normalized
+# content instead of normalizing every comparable memory. Derived and never
+# exported; Store backfills rows that other writers left out.
+CLAIMS_INDEX_STATEMENTS = (
+    'CREATE TABLE IF NOT EXISTS claims ('
+    'memory_id TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE, digest TEXT NOT NULL)',
+    'CREATE INDEX IF NOT EXISTS claims_digest ON claims(digest)',
+)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 INSERT OR IGNORE INTO metadata VALUES ('schema_version','1');
@@ -65,7 +74,7 @@ CREATE INDEX IF NOT EXISTS evidence_space ON evidence(space);
 CREATE INDEX IF NOT EXISTS memories_space ON memories(space,status);
 CREATE INDEX IF NOT EXISTS supports_evidence ON supports(evidence_id);
 CREATE INDEX IF NOT EXISTS relations_target ON relations(target_id,kind);
-""" + ''.join(statement + ';\n' for statement in RECALL_INDEX_STATEMENTS)
+""" + ''.join(statement + ';\n' for statement in CLAIMS_INDEX_STATEMENTS + RECALL_INDEX_STATEMENTS)
 
 
 # Version-1 preview databases predate processing diagnostics. Keep the on-disk
@@ -134,6 +143,8 @@ def migrate_schema(connection):
     """Bring a supported version-1 database to the latest additive layout."""
     validate_schema(connection)
     connection.execute('CREATE INDEX IF NOT EXISTS relations_target ON relations(target_id,kind)')
+    for statement in CLAIMS_INDEX_STATEMENTS:
+        connection.execute(statement)
     present = {row[1] for row in connection.execute('PRAGMA table_info(jobs)')}
     for name, definition in JOB_DIAGNOSTIC_COLUMNS.items():
         if name not in present:
