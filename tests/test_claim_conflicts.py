@@ -74,12 +74,18 @@ class ClaimConflictTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             client = LocalClient(td, auto_process=False)
             try:
-                client.call('remember', {'space':'owner', 'content':'Unique anchor'})
+                anchor = client.call('remember', {'space':'owner', 'content':'Unique anchor'})
                 with client.store.connection(True) as connection:
                     connection.executemany('INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                         [(f'mem_{i}', 'owner', f'Unmatched alternative {i}', 'fact', 'direct', 'unspecified',
                           None, 'active', 1, '2025-01-01T00:00:00.000000Z', '2025-01-01T00:00:00.000000Z', None)
                          for i in range(1100)])
+                quiet = client.call('context', {'query':'Unique', 'budget':1})
+                self.assertFalse(quiet['trace']['relation_expansion_limited'])
+                self.assertFalse(quiet['warnings'])
+                with client.store.connection(True) as connection:
+                    connection.executemany('INSERT INTO relations VALUES (?,?,?)',
+                        [(anchor['id'], f'mem_{i}', 'contradicts') for i in range(1100)])
                 result = client.call('context', {'query':'Unique', 'budget':1})
                 self.assertEqual(result['trace']['relation_checks'], 1000)
                 self.assertTrue(result['trace']['relation_expansion_limited'])
