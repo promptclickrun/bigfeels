@@ -13,6 +13,12 @@ const DEFAULT_EVIDENCE_RETENTION_DAYS = 7;
 const MAX_EVIDENCE_RETENTION_DAYS = 3650;
 const ALLOWED_CAPTURE_ROLES = new Set(["user", "assistant", "tool"]);
 const PROCESS_BATCH_SIZE = 8;
+// Native mode writes memory by default with the host model: user and assistant
+// turns are captured and extracted. Tool output stays opt-in, and HTTP mode
+// keeps explicit opt-in because its server, not the host, extracts.
+const NATIVE_CAPTURE_ROLES = ["user", "assistant"];
+const EXTRACTION_MAX_TOKENS = 1200;
+const BATCH_MAX_TOKENS = 8000;
 const RETRY_POLL_MS = 1_000;
 const MAX_TIMER_DELAY_MS = 2_147_000_000;
 const DEFAULT_BRIDGE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "bridge.py");
@@ -67,8 +73,8 @@ function uniqueStrings(values) {
   return [...new Set(values.filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim()))];
 }
 
-function captureRoles(value) {
-  if (value === undefined) return [];
+function captureRoles(value, fallback) {
+  if (value === undefined) return [...fallback];
   if (!Array.isArray(value)) throw new Error("bigfeels captureRoles must be an array");
   if (value.some((role) => typeof role !== "string" || !ALLOWED_CAPTURE_ROLES.has(role))) {
     throw new Error("bigfeels captureRoles may contain only user, assistant, and tool");
@@ -123,10 +129,10 @@ function validateConfig(value) {
       : DEFAULT_NATIVE_TIMEOUT_MS,
     pythonPath: typeof value.pythonPath === "string" && value.pythonPath.trim() ? value.pythonPath.trim() : "python3",
     dataDir: typeof value.dataDir === "string" && value.dataDir.trim() ? value.dataDir.trim() : "",
-    captureRoles: captureRoles(value.captureRoles),
+    captureRoles: captureRoles(value.captureRoles, mode === "native" ? NATIVE_CAPTURE_ROLES : []),
     evidenceRetentionDays: retentionDays(value.evidenceRetentionDays),
     autoCapture: value.autoCapture !== false,
-    autoExtract: value.autoExtract === true,
+    autoExtract: mode === "native" ? value.autoExtract !== false : value.autoExtract === true,
     autoRecall: value.autoRecall !== false,
   };
 
@@ -427,9 +433,11 @@ export function createOpenClawAdapter({
         },
       };
       activeOperations.add(operationControl);
+      // processTimeoutMs covers one host completion per queued item.
+      const items = operation === "process" && Number.isInteger(payload?.limit) ? payload.limit : 1;
       const timer = setTimeout(() => {
         finishReject(safeError("Memory operation timed out", 504));
-      }, config.processTimeoutMs);
+      }, config.processTimeoutMs * Math.min(Math.max(items, 1), PROCESS_BATCH_SIZE));
 
       function finishResolve(value) {
         if (settled) return;
@@ -474,7 +482,10 @@ export function createOpenClawAdapter({
         try {
           const completionRequest = {
             messages: message.messages,
-            maxTokens: 1200,
+            // Batches ask for one item's allowance per item.
+            maxTokens: Number.isInteger(message.max_tokens)
+              ? Math.min(Math.max(message.max_tokens, EXTRACTION_MAX_TOKENS), BATCH_MAX_TOKENS)
+              : EXTRACTION_MAX_TOKENS,
             signal: childAbort.signal,
             purpose: "bigfeels memory extraction",
           };
@@ -643,16 +654,10 @@ export function createOpenClawAdapter({
     processingContext = ctx;
     let nextDelay;
     processingPromise = (async () => {
-      let processed = 0;
-      // One bounded child handles one job. This keeps a slow subscription
-      // completion from holding a child for all eight queued jobs.
-      for (let index = 0; index < PROCESS_BATCH_SIZE; index += 1) {
-        if (!activeSessions.has(ctx.sessionKey)) break;
-        const result = await post("process", { limit: 1 }, ctx);
-        const count = result && Number.isInteger(result.processed) ? result.processed : 0;
-        processed += count;
-        if (count < 1) break;
-      }
+      // One child extracts up to a batch of queued jobs in one host
+      // completion; a full batch schedules an immediate follow-up drain.
+      const result = await post("process", { limit: PROCESS_BATCH_SIZE }, ctx);
+      const processed = result && Number.isInteger(result.processed) ? result.processed : 0;
       if (activeSessions.has(ctx.sessionKey)) {
         try {
           const status = await post("status", {}, ctx);

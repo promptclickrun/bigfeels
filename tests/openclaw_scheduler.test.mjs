@@ -8,7 +8,7 @@ function fixture({ failFirst = false } = {}) {
   const ctx = { agentId: 'main', sessionKey: 'review-session', runId: 'review-run', trigger: 'user' };
   const adapter = createOpenClawAdapter({
     config: { captureRoles: ['user', 'assistant', 'tool'], autoExtract: true },
-    transport: async (operation) => {
+    transport: async (operation, payload) => {
       if (operation === 'context') return { status: 'ok', memories: [] };
       if (operation === 'observe') {
         state.captured += 1;
@@ -23,10 +23,11 @@ function fixture({ failFirst = false } = {}) {
         }
         if (state.retryAt && Date.now() / 1000 < state.retryAt) return { processed: 0 };
         if (!state.pending) return { processed: 0 };
-        state.pending -= 1;
-        state.done += 1;
+        const processed = Math.min(payload.limit, state.pending);
+        state.pending -= processed;
+        state.done += processed;
         state.retryAt = null;
-        return { processed: 1 };
+        return { processed };
       }
       if (operation === 'status') return {
         queue: { pending: state.pending, processing: 0, done: state.done, failed: 0 },

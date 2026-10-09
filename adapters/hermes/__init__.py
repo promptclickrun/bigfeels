@@ -34,6 +34,13 @@ _MAX_TURN_STATES = 256
 _NATIVE_OWNER_SPACE = "owner"
 _EXTRACTION_MAX_TOKENS = 1200
 _EXTRACTION_TIMEOUT = 30
+# Batches scale the single-item allowances, within the store's job lease.
+_BATCH_MAX_TOKENS = 8000
+_BATCH_TIMEOUT = 240
+# Native mode writes memory by default: user and assistant turns are captured
+# and extracted by Hermes's own auxiliary model. Tool output stays opt-in, and
+# the legacy HTTP mode keeps explicit opt-in because its server extracts.
+_DEFAULT_CAPTURE_ROLES = ("user", "assistant")
 
 
 @dataclass
@@ -51,8 +58,8 @@ class NativeConfig:
     owner_space: str = _NATIVE_OWNER_SPACE
     project_spaces: tuple[str, ...] = ()
     write_space: str = _NATIVE_OWNER_SPACE
-    capture_roles: tuple[str, ...] = ()
-    auto_extract: bool = False
+    capture_roles: tuple[str, ...] = _DEFAULT_CAPTURE_ROLES
+    auto_extract: bool = True
     evidence_retention_days: int = DEFAULT_EVIDENCE_RETENTION_DAYS
     budget: int = 800
 
@@ -177,10 +184,10 @@ def _native_config(values: dict[str, Any] | None = None) -> NativeConfig:
     owner = values.get("owner_space", _NATIVE_OWNER_SPACE)
     write = values.get("write_space", owner)
     capture_roles = validate_capture_roles(
-        values.get("capture_roles", ()),
+        values.get("capture_roles", _DEFAULT_CAPTURE_ROLES),
         "Hermes capture_roles",
     )
-    auto_extract = values.get("auto_extract", False)
+    auto_extract = values.get("auto_extract", True)
     retention_days = values.get(
         "evidence_retention_days",
         DEFAULT_EVIDENCE_RETENTION_DAYS,
@@ -265,9 +272,8 @@ def _response_text(response: Any) -> str:
 class _HostExtractor:
     """Adapter from Store's extractor protocol to Hermes's host LLM lane."""
 
-    def extract(self, evidence: dict[str, Any]) -> list[dict[str, Any]]:
-        providers = _import_core("bigfeels_mem.providers")
-        messages = providers.extraction_messages(evidence)
+    @staticmethod
+    def _complete(messages: list[dict[str, Any]], max_tokens: int, timeout: float) -> str:
         try:
             from agent.auxiliary_client import call_llm
         except ImportError as exc:
@@ -275,10 +281,28 @@ class _HostExtractor:
         response = call_llm(
             task="bigfeels_memory",
             messages=messages,
-            max_tokens=_EXTRACTION_MAX_TOKENS,
-            timeout=_EXTRACTION_TIMEOUT,
+            max_tokens=max_tokens,
+            timeout=timeout,
         )
-        return providers.parse_extraction(_response_text(response))
+        return _response_text(response)
+
+    def extract(self, evidence: dict[str, Any]) -> list[dict[str, Any]]:
+        providers = _import_core("bigfeels_mem.providers")
+        text = self._complete(
+            providers.extraction_messages(evidence),
+            _EXTRACTION_MAX_TOKENS,
+            _EXTRACTION_TIMEOUT,
+        )
+        return providers.parse_extraction(text)
+
+    def extract_batch(self, items: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+        providers = _import_core("bigfeels_mem.providers")
+        text = self._complete(
+            providers.batch_extraction_messages(items),
+            min(_EXTRACTION_MAX_TOKENS * len(items), _BATCH_MAX_TOKENS),
+            min(_EXTRACTION_TIMEOUT * len(items), _BATCH_TIMEOUT),
+        )
+        return providers.parse_batch_extraction(text, len(items))
 
 
 def _format_context(memories: list[dict[str, Any]]) -> str:

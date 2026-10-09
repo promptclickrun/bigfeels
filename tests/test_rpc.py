@@ -63,6 +63,24 @@ class RPCTests(unittest.TestCase):
         self.assertEqual(self.read(child)['result']['processed'], 1)
         self.assertTrue(local.call('context', {'query':'jasmine'})['memories'])
 
+    def test_bridge_batches_queued_events_into_one_host_completion(self):
+        local = LocalClient(self.data)
+        self.addCleanup(local.close)
+        for index, content in enumerate(['I prefer jasmine tea.', 'I live in Lisbon.']):
+            local.call('observe', dict(space='owner', source='test', source_event_id=str(index), session_id='1',
+                                      content=content, speaker='user', captured=True))
+        child = self.child('process', {})
+        request = self.read(child)
+        self.assertEqual(request['max_tokens'], 2400)
+        self.assertEqual(len(json.loads(request['messages'][1]['content'])['items']), 2)
+        answer = json.dumps({'memories': [
+            {'content': 'The user prefers jasmine tea.', 'quote': 'I prefer jasmine tea.', 'basis': 'direct', 'items': [0]},
+            {'content': 'The user lives in Lisbon.', 'quote': 'I live in Lisbon.', 'basis': 'direct', 'items': [1]}]})
+        child.stdin.write(json.dumps({'id': request['id'], 'result': answer}) + '\n')
+        child.stdin.flush()
+        self.assertEqual(self.read(child)['result']['processed'], 2)
+        self.assertTrue(local.call('context', {'query': 'Lisbon'})['memories'])
+
     def test_malformed_host_reply_keeps_job_pending_without_echoing_secrets(self):
         local = LocalClient(self.data)
         self.addCleanup(local.close)

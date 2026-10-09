@@ -9,9 +9,33 @@ const event = { runId: ctx.runId, success: true, messages: [
   { role: 'assistant', content: 'Private assistant summary' },
 ] };
 
+test('native default writes memory from user and assistant turns with the host model', async () => {
+  const calls = [];
+  const completions = [];
+  const adapter = createOpenClawAdapter({
+    config: {},
+    transport: async (operation, payload) => {
+      calls.push({ operation, payload });
+      if (operation === 'process') return { processed: 2 };
+      if (operation === 'status') return { queue: { pending: 0, processing: 0 } };
+      return { status: 'ok', memories: [] };
+    },
+    complete: async (request) => { completions.push(request); return '{"memories":[]}'; },
+  });
+  try {
+    await adapter.beforePromptBuild({ prompt: 'Private user turn' }, ctx);
+    await adapter.agentEnd(event, ctx);
+    await adapter.processPending(ctx);
+    const observed = calls.filter(c => c.operation === 'observe').map(c => c.payload);
+    assert.deepEqual(observed.map(o => o.speaker), ['user', 'assistant']);
+    assert.ok(observed.every(o => o.queue_extraction === true && o.expires_at));
+    assert.deepEqual(calls.find(c => c.operation === 'process').payload, { limit: 8 });
+  } finally { adapter.shutdown(); }
+});
+
 for (const mode of ['native', 'http']) {
-  test(`${mode} default captures nothing even when extraction is enabled alone`, async () => {
-    for (const options of [{}, { autoExtract: true }]) {
+  test(`${mode} empty captureRoles captures nothing even when extraction is enabled`, async () => {
+    for (const options of [{ captureRoles: [] }, { captureRoles: [], autoExtract: true }]) {
       const calls = [];
       const adapter = createOpenClawAdapter({
         config: { ...(mode === 'http' ? { mode, url: 'http://127.0.0.1:8765', token: 'fixture' } : {}), ...options },
@@ -36,7 +60,7 @@ for (const mode of ['native', 'http']) {
   test(`${mode} user-only capture has stable finite TTL and no extraction jobs`, async () => {
     const observations = [];
     const adapter = createOpenClawAdapter({
-      config: { ...(mode === 'http' ? { mode, url: 'http://127.0.0.1:8765', token: 'fixture' } : {}), captureRoles: ['user'] },
+      config: { ...(mode === 'http' ? { mode, url: 'http://127.0.0.1:8765', token: 'fixture' } : {}), captureRoles: ['user'], autoExtract: false },
       transport: async (operation, payload) => {
         assert.notEqual(operation, 'process');
         if (operation === 'observe') observations.push(payload);
@@ -58,6 +82,19 @@ for (const mode of ['native', 'http']) {
     } finally { adapter.shutdown(); }
   });
 }
+
+test('http default captures nothing', async () => {
+  const calls = [];
+  const adapter = createOpenClawAdapter({
+    config: { mode: 'http', url: 'http://127.0.0.1:8765', token: 'fixture' },
+    transport: async (operation) => { calls.push(operation); return { status: 'ok', memories: [] }; },
+  });
+  try {
+    await adapter.beforePromptBuild({ prompt: 'Private user turn' }, ctx);
+    await adapter.agentEnd(event, ctx);
+    assert.deepEqual(calls, ['context']);
+  } finally { adapter.shutdown(); }
+});
 
 test('invalid policy fails closed rather than enabling capture', () => {
   for (const config of [

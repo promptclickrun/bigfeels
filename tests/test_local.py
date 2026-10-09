@@ -135,6 +135,45 @@ class LocalTests(unittest.TestCase):
         self.assertEqual(responses[2]['result']['structuredContent']['memories'][0]['content'], 'MCP orchid continuity.')
         self.assertTrue(responses[3]['result']['isError'])
 
+    def test_mcp_process_uses_the_client_model_through_sampling(self):
+        env = dict(os.environ)
+        env.pop('BIGFEELS_MEM_TOKEN', None)
+        server = subprocess.Popen([sys.executable, '-m', 'bigfeels_mem.cli', '--data-dir', str(self.data), 'mcp'],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, env=env)
+        self.addCleanup(lambda: server.poll() is None and server.kill() or server.communicate())
+        def send(message):
+            server.stdin.write(json.dumps(message) + '\n')
+            server.stdin.flush()
+        def call(identifier, name, arguments):
+            send({'jsonrpc': '2.0', 'id': identifier, 'method': 'tools/call',
+                  'params': {'name': name, 'arguments': arguments}})
+        send({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
+            'clientInfo': {'name': 'test', 'version': '1'}, 'capabilities': {'sampling': {}}}})
+        self.assertIn('result', json.loads(server.stdout.readline()))
+        for index, content in enumerate(['I prefer jasmine tea.', 'Noted, jasmine tea it is.']):
+            call(2 + index, 'memory_observe', {
+                'space': 'owner', 'source': 'test', 'source_event_id': str(index), 'session_id': 's',
+                'content': content, 'speaker': ('user', 'assistant')[index], 'captured': True})
+            json.loads(server.stdout.readline())
+        call(4, 'memory_process', {})
+        request = json.loads(server.stdout.readline())
+        self.assertEqual(request['method'], 'sampling/createMessage')
+        self.assertIn('evidence items', request['params']['systemPrompt'])
+        # A client ping arriving while the server waits is answered afterwards.
+        send({'jsonrpc': '2.0', 'id': 5, 'method': 'ping'})
+        answer = json.dumps({'memories': [{'content': 'The user prefers jasmine tea.', 'quote': 'I prefer jasmine tea.',
+                                           'kind': 'preference', 'basis': 'direct', 'items': [0, 1]}]})
+        send({'jsonrpc': '2.0', 'id': request['id'], 'result': {
+            'role': 'assistant', 'model': 'host', 'content': {'type': 'text', 'text': answer}}})
+        processed = json.loads(server.stdout.readline())
+        self.assertEqual(processed['id'], 4)
+        self.assertEqual(processed['result']['structuredContent']['processed'], 2)
+        self.assertEqual(json.loads(server.stdout.readline()), {'jsonrpc': '2.0', 'id': 5, 'result': {}})
+        call(6, 'memory_context', {'query': 'jasmine'})
+        [memory] = json.loads(server.stdout.readline())['result']['structuredContent']['memories']
+        self.assertEqual((memory['content'], memory['evidence_count']), ('The user prefers jasmine tea.', 2))
+
     def test_native_cli_status_doctor_and_export_need_no_pairing(self):
         client = self.client()
         client.call('remember', {'space':'owner', 'content':'Native CLI jasmine continuity.'})

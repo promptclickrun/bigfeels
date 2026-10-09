@@ -1,4 +1,4 @@
-"""Default capture policy must not retain or submit unselected turns."""
+"""Capture policy: conversation turns by default, never unselected roles."""
 import importlib
 import json
 import tempfile
@@ -22,10 +22,24 @@ class CapturePolicyTests(unittest.TestCase):
             {'role':'tool','tool_call_id':'m365','content':'Private M365 document body'},
         ])
 
-    def test_default_turn_capture_is_off_and_explicit_save_works(self):
+    def test_default_writes_memory_from_conversation_but_not_tool_output(self):
         plugin = importlib.import_module('adapters.hermes')
         with tempfile.TemporaryDirectory() as td, patch.object(plugin, '_HostExtractor') as extractor:
             p = self.provider(td)
+            try:
+                self.capture(p)
+                records = p._local.call('export', {})['evidence']
+                self.assertEqual(sorted(r['speaker'] for r in records), ['assistant', 'user'])
+                self.assertTrue(all(r['expires_at'] for r in records))
+                extractor.assert_called_once()
+                self.assertIs(p._local.extractor, extractor.return_value)
+            finally:
+                p.shutdown()
+
+    def test_empty_capture_roles_turn_capture_off_and_explicit_save_works(self):
+        plugin = importlib.import_module('adapters.hermes')
+        with tempfile.TemporaryDirectory() as td, patch.object(plugin, '_HostExtractor') as extractor:
+            p = self.provider(td, capture_roles=[])
             try:
                 self.capture(p)
                 self.assertEqual(p._local.call('export', {})['evidence'], [])

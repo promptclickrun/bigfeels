@@ -10,10 +10,14 @@ import uuid
 
 from .client import ClientError
 from .local import LocalClient
-from .providers import extraction_messages, parse_extraction, ProviderError
+from .providers import (batch_extraction_messages, extraction_messages, parse_batch_extraction,
+                        parse_extraction, ProviderError)
 
 
 MAX_LINE = 2_000_000
+# Output allowance the host is asked for: one item's worth per batch item.
+EXTRACTION_MAX_TOKENS = 1200
+BATCH_MAX_TOKENS = 8000
 
 
 def _read(stream):
@@ -35,13 +39,22 @@ class _HostExtractor:
     def __init__(self, instream, outstream):
         self.input, self.output = instream, outstream
 
-    def extract(self, evidence):
+    def _complete(self, messages, max_tokens):
         identifier = 'extract_' + uuid.uuid4().hex
-        _write(self.output, {'id': identifier, 'method': 'extract', 'messages': extraction_messages(evidence)})
+        _write(self.output, {'id': identifier, 'method': 'extract', 'messages': messages,
+                             'max_tokens': max_tokens})
         response = _read(self.input)
         if response.get('id') != identifier or response.get('error'):
             raise ProviderError('Host model unavailable')
-        return parse_extraction(response.get('result'))
+        return response.get('result')
+
+    def extract(self, evidence):
+        return parse_extraction(self._complete(extraction_messages(evidence), EXTRACTION_MAX_TOKENS))
+
+    def extract_batch(self, items):
+        text = self._complete(batch_extraction_messages(items),
+                              min(EXTRACTION_MAX_TOKENS * len(items), BATCH_MAX_TOKENS))
+        return parse_batch_extraction(text, len(items))
 
 
 def main(argv=None, instream=None, outstream=None):
