@@ -279,12 +279,13 @@ class BackgroundProcessor:
         try:
             if self.provider.can_extract:
                 while processed < limit and not self._stop.is_set():
-                    if not self.store.process_one(
-                            self.provider,
-                            self.provider if self.provider.can_embed else None,
-                            spaces=spaces):
+                    done = self.store.process_batch(
+                        self.provider,
+                        self.provider if self.provider.can_embed else None,
+                        spaces=spaces, limit=limit - processed)
+                    if not done:
                         break
-                    processed += 1
+                    processed += done
             if self.provider.can_embed:
                 self.store.process_embeddings(self.provider, spaces=spaces)
         finally:

@@ -72,10 +72,15 @@ class LocalClient:
             return 0
         processed = 0
         try:
+            # Extractors that support batches handle several items per call.
+            batch = hasattr(self.extractor, 'extract_batch')
             while self.extractor and processed < limit and not self._stop.is_set():
-                if not self.store.process_one(self.extractor, embedder, spaces=self.principal.spaces):
+                done = (self.store.process_batch(self.extractor, embedder, spaces=self.principal.spaces,
+                                                 limit=limit - processed) if batch else
+                        int(self.store.process_one(self.extractor, embedder, spaces=self.principal.spaces)))
+                if not done:
                     break
-                processed += 1
+                processed += done
             if embedder and not self._stop.is_set():
                 try:
                     self.store.process_embeddings(embedder, spaces=self.principal.spaces)

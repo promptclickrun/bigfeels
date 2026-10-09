@@ -879,103 +879,145 @@ class Store:
             ('failed' if terminal else 'pending', 0 if terminal else time.time() + 30,
              error, rejected, reason, evidence_id, lease))
 
-    def process_one(self, extractor, embedder=None, *, spaces=None):
+    def _jobs_to_process(self, c, spaces, limit):
+        """Lease up to limit pending jobs, all from the oldest job's space."""
         lease = uid('lease')
-        scope_sql = ''
-        scope_args = ()
+        scope_sql, scope_args = '', ()
         if spaces is not None:
             scope_args = tuple(string_list(list(spaces), 'spaces'))
             if not scope_args:
-                return False
+                return lease, []
             scope_sql = ' AND e.space IN (' + ','.join('?' for _ in scope_args) + ')'
+        ready = ("SELECT e.* FROM jobs j JOIN evidence e ON e.id=j.evidence_id WHERE e.content IS NOT NULL "
+                 "AND (e.expires_at IS NULL OR e.expires_at>?) AND ((j.state='pending' AND j.retry_at<=?) "
+                 "OR (j.state='processing' AND j.lease_until<?))")
+        first = c.execute(ready + scope_sql + ' ORDER BY e.recorded_at LIMIT 1',
+                          (now(), time.time(), time.time(), *scope_args)).fetchone()
+        if not first:
+            return lease, []
+        rows = [dict(r) for r in c.execute(ready + ' AND e.space=? ORDER BY e.recorded_at LIMIT ?',
+                                           (now(), time.time(), time.time(), first['space'], limit))]
+        # One provider call covers the batch, so its lease grows with the batch.
+        until = time.time() + 120 + 30 * (len(rows) - 1)
+        c.executemany("UPDATE jobs SET state='processing',lease_until=?,lease_token=?,attempts=attempts+1 WHERE evidence_id=?",
+                      [(until, lease, e['id']) for e in rows])
+        return lease, rows
+
+    def process_one(self, extractor, embedder=None, *, spaces=None):
+        return self.process_batch(extractor, embedder, spaces=spaces, limit=1) > 0
+
+    def process_batch(self, extractor, embedder=None, *, spaces=None, limit=8):
+        """Extract from up to limit queued evidence items in one space.
+
+        Extractors with extract_batch receive every item in one call; others
+        are called once per item. Each item's candidates are checked and
+        saved independently. Returns the number of items that finished.
+        """
         with self.connection(True) as c:
-            row = c.execute("SELECT e.* FROM jobs j JOIN evidence e ON e.id=j.evidence_id WHERE e.content IS NOT NULL AND (e.expires_at IS NULL OR e.expires_at>?) AND ((j.state='pending' AND j.retry_at<=?) OR (j.state='processing' AND j.lease_until<?))" + scope_sql + " ORDER BY e.recorded_at LIMIT 1", (now(), time.time(), time.time(), *scope_args)).fetchone()
-            if not row:
-                return False
-            e = dict(row)
-            c.execute("UPDATE jobs SET state='processing',lease_until=?,lease_token=?,attempts=attempts+1 WHERE evidence_id=?", (time.time()+120, lease, e['id']))
+            lease, items = self._jobs_to_process(c, spaces, limit)
+        if not items:
+            return 0
         try:
-            candidates = extractor.extract(e)
-            malformed_response = not isinstance(candidates, list) or len(candidates) > 32
-            if malformed_response:
-                candidates = [None]
-            mids = []
-            accepted = invalid = suppressed = 0
-            rejection_codes = set()
-            with self.connection(True) as c:
-                live = c.execute("SELECT e.content FROM evidence e JOIN jobs j ON j.evidence_id=e.id WHERE e.id=? AND j.lease_token=? AND (e.expires_at IS NULL OR e.expires_at>?)", (e['id'], lease, now())).fetchone()
-                if not live or live[0] is None:
-                    return False
-                p = Principal('extractor', (e['space'],))
-                for candidate in candidates:
-                    if not isinstance(candidate, dict):
-                        invalid += 1
-                        rejection_codes.add('invalid_candidate')
-                        continue
-                    quote = candidate.get('quote', '')
-                    basis = candidate.get('basis', 'inferred')
-                    outcome = candidate.get('outcome', 'unspecified')
-                    claim = candidate.get('content', '')
-                    grounded = isinstance(quote, str) and bool(quote.strip()) and quote in e['content']
-                    if basis == 'direct' and e['speaker'] != 'user':
-                        basis = 'inferred'
-                    if basis == 'observed' and e['speaker'] != 'tool':
-                        basis = 'inferred'
-                    if not grounded:
-                        basis = 'inferred'
-                    if outcome in ('verified', 'attested'):
-                        # Provider output is candidate extraction, never an
-                        # independent verifier of a caller's success claim.
-                        outcome = 'unspecified'
-                    if not isinstance(claim, str) or not claim.strip():
-                        invalid += 1
-                        rejection_codes.add('invalid_candidate')
-                        continue
-                    content = (grounded_claim_content(e['content'], quote, claim)
-                               if grounded and basis != 'inferred' else claim)
-                    if len(content) > 16000:
-                        invalid += 1
-                        rejection_codes.add('invalid_candidate')
-                        continue
-                    key = candidate.get('key')
-                    if self._superseded_candidate(c, e['id'], key, content):
-                        suppressed += 1
-                        rejection_codes.add('superseded_claim')
-                        continue
-                    payload = {k: candidate[k] for k in ('kind', 'key') if k in candidate}
-                    payload.update(space=e['space'], content=content, basis=basis, outcome=outcome,
-                                   evidence_ids=[e['id']], valid_from=e['occurred_at'])
-                    try:
-                        memory = self._remember(c, p, payload)
-                        mids.append(memory['id'])
-                        accepted += 1
-                    except MemoryError:
-                        invalid += 1
-                        rejection_codes.add('invalid_candidate')
-                rejected = invalid + suppressed
-                reason = None
-                if len(rejection_codes) == 1:
-                    reason = next(iter(rejection_codes))
-                elif rejection_codes:
-                    reason = 'mixed_invalid_candidates'
-                if invalid and accepted + suppressed == 0:
-                    self._finish_failed_attempt(
-                        c, e['id'], lease, 'invalid_candidates',
-                        rejected=rejected, reason=reason)
-                    return False
-                c.execute(
-                    "UPDATE jobs SET state='done',retry_at=0,error=NULL,lease_token=NULL,"
-                    "accepted_count=accepted_count+?,rejected_count=rejected_count+?,"
-                    "rejection_reason=? WHERE evidence_id=? AND lease_token=?",
-                    (accepted, rejected, reason, e['id'], lease))
-            if embedder:
-                for mid in dict.fromkeys(mids):
-                    self._embed_memory(mid, embedder)
-            return True
+            batch = getattr(extractor, 'extract_batch', None)
+            results = batch(items) if batch and len(items) > 1 else [extractor.extract(e) for e in items]
+            if not isinstance(results, list) or len(results) != len(items):
+                results = [None] * len(items)
         except Exception:
             with self.connection(True) as c:
-                self._finish_failed_attempt(c, e['id'], lease, 'provider_error')
-            return False
+                for e in items:
+                    self._finish_failed_attempt(c, e['id'], lease, 'provider_error')
+            return 0
+        finished, mids = 0, []
+        for e, candidates in zip(items, results):
+            try:
+                accepted = self._accept_candidates(e, lease, candidates)
+            except Exception:
+                with self.connection(True) as c:
+                    self._finish_failed_attempt(c, e['id'], lease, 'provider_error')
+                continue
+            if accepted is not None:
+                finished += 1
+                mids.extend(accepted)
+        if embedder:
+            for mid in dict.fromkeys(mids):
+                self._embed_memory(mid, embedder)
+        return finished
+
+    def _accept_candidates(self, e, lease, candidates):
+        """Check and save one item's candidates; None when the item did not finish."""
+        malformed_response = not isinstance(candidates, list) or len(candidates) > 32
+        if malformed_response:
+            candidates = [None]
+        mids = []
+        accepted = invalid = suppressed = 0
+        rejection_codes = set()
+        with self.connection(True) as c:
+            live = c.execute("SELECT e.content FROM evidence e JOIN jobs j ON j.evidence_id=e.id WHERE e.id=? AND j.lease_token=? AND (e.expires_at IS NULL OR e.expires_at>?)", (e['id'], lease, now())).fetchone()
+            if not live or live[0] is None:
+                return None
+            p = Principal('extractor', (e['space'],))
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    invalid += 1
+                    rejection_codes.add('invalid_candidate')
+                    continue
+                quote = candidate.get('quote', '')
+                basis = candidate.get('basis', 'inferred')
+                outcome = candidate.get('outcome', 'unspecified')
+                claim = candidate.get('content', '')
+                grounded = isinstance(quote, str) and bool(quote.strip()) and quote in e['content']
+                if basis == 'direct' and e['speaker'] != 'user':
+                    basis = 'inferred'
+                if basis == 'observed' and e['speaker'] != 'tool':
+                    basis = 'inferred'
+                if not grounded:
+                    basis = 'inferred'
+                if outcome in ('verified', 'attested'):
+                    # Provider output is candidate extraction, never an
+                    # independent verifier of a caller's success claim.
+                    outcome = 'unspecified'
+                if not isinstance(claim, str) or not claim.strip():
+                    invalid += 1
+                    rejection_codes.add('invalid_candidate')
+                    continue
+                content = (grounded_claim_content(e['content'], quote, claim)
+                           if grounded and basis != 'inferred' else claim)
+                if len(content) > 16000:
+                    invalid += 1
+                    rejection_codes.add('invalid_candidate')
+                    continue
+                key = candidate.get('key')
+                if self._superseded_candidate(c, e['id'], key, content):
+                    suppressed += 1
+                    rejection_codes.add('superseded_claim')
+                    continue
+                payload = {k: candidate[k] for k in ('kind', 'key') if k in candidate}
+                payload.update(space=e['space'], content=content, basis=basis, outcome=outcome,
+                               evidence_ids=[e['id']], valid_from=e['occurred_at'])
+                try:
+                    memory = self._remember(c, p, payload)
+                    mids.append(memory['id'])
+                    accepted += 1
+                except MemoryError:
+                    invalid += 1
+                    rejection_codes.add('invalid_candidate')
+            rejected = invalid + suppressed
+            reason = None
+            if len(rejection_codes) == 1:
+                reason = next(iter(rejection_codes))
+            elif rejection_codes:
+                reason = 'mixed_invalid_candidates'
+            if invalid and accepted + suppressed == 0:
+                self._finish_failed_attempt(
+                    c, e['id'], lease, 'invalid_candidates',
+                    rejected=rejected, reason=reason)
+                return None
+            c.execute(
+                "UPDATE jobs SET state='done',retry_at=0,error=NULL,lease_token=NULL,"
+                "accepted_count=accepted_count+?,rejected_count=rejected_count+?,"
+                "rejection_reason=? WHERE evidence_id=? AND lease_token=?",
+                (accepted, rejected, reason, e['id'], lease))
+        return mids
 
     def _embed_memory(self, mid, embedder):
         with self.connection() as c:
