@@ -109,8 +109,14 @@ def extract_history(db_path, history, extractor, batch, provider, sidecar, roles
     if not sidecar.exists():
         sidecar.write_text(json.dumps({'owners': {}, 'ambiguous': []}))
     observe_messages(store, history, roles)
-    while store.process_batch(extractor, spaces=[SPACE], limit=batch):
-        pass
+    while True:
+        if store.process_batch(extractor, spaces=[SPACE], limit=batch):
+            continue
+        with store.connection() as c:
+            waiting = c.execute("SELECT COUNT(*) FROM jobs WHERE state IN ('pending','processing')").fetchone()[0]
+        if not waiting:
+            break
+        time.sleep(30)  # A failed batch is retried after its delay, up to the attempt limit.
     with store.connection() as c:
         # Credit each extracted fact to its source message for recall checks.
         facts = {r['id']: int(r['source_event_id'].split(':')[0]) for r in c.execute(
