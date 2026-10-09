@@ -14,6 +14,9 @@ SPACE = {'type': 'string', 'minLength': 1, 'maxLength': 200}
 CONTENT = {'type': 'string', 'minLength': 1, 'maxLength': 100000}
 IDENTIFIER = {'type': 'string', 'minLength': 1, 'maxLength': 500}
 TIMESTAMP = {'type': 'string', 'description': 'ISO-8601 timestamp with timezone'}
+# Agents answered BEAM questions best with several focused searches.
+SEARCH_HINT = ('For a question spanning several topics, sessions, or events, search again with '
+               'different queries; 8000-16000 bytes per call suits most questions.')
 
 
 def _object(properties, required=()):
@@ -58,7 +61,8 @@ TOOLS = (
     },
     {
         'name': 'memory_context',
-        'description': 'Recall bounded active memory context relevant to a query.',
+        'description': ('Recall active memories relevant to a query, best match first, within a byte '
+                        'budget (default 800). Use this to gather memory for answering. ' + SEARCH_HINT),
         'inputSchema': _object({
             'query': {'type': 'string', 'maxLength': 8000},
             'spaces': {'type': 'array', 'items': SPACE, 'maxItems': 1000},
@@ -68,7 +72,7 @@ TOOLS = (
     },
     {
         'name': 'memory_search',
-        'description': 'Search scoped memories and return provenance plus a recall trace.',
+        'description': 'Search scoped memories and return full provenance plus a recall trace, for inspection.',
         'inputSchema': _object({
             'query': {'type': 'string', 'maxLength': 8000},
             'spaces': {'type': 'array', 'items': SPACE, 'maxItems': 1000},
