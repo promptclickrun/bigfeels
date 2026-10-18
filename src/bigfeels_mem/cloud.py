@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 
 from .client import ClientError, _NoRedirect, _is_loopback
-from . import sync
+from . import __version__, sync
 from .store import Store, now
 
 CONFIG_NAME = 'cloud.json'
@@ -38,7 +38,9 @@ class CloudClient:
         data = None if payload is None else json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
         if data and len(data) > sync.MAX_BYTES:
             raise ClientError('Sync request exceeds 2 MB', 413)
-        headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+        # Cloudflare's edge rejects urllib's default User-Agent on workers.dev (error 1010).
+        headers = {'Accept': 'application/json', 'Content-Type': 'application/json',
+                   'User-Agent': 'bigfeels-mem/' + __version__}
         if self.token:
             headers['Authorization'] = 'Bearer ' + self.token
         request = urllib.request.Request(self.url + path, data=data, headers=headers)
