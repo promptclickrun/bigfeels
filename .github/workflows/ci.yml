@@ -36,3 +36,23 @@ jobs:
           bigfeels-mem --help
           python -m bigfeels_mem.cli --help
           python -m bigfeels_mem.cli --data-dir "CI Data With Spaces" mcp --explicit-only --help
+
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@v6
+      - run: npm ci --prefix cloud
+      - name: Real Workers runtime and two-device sync
+        run: python scripts/test-cloud.py
+      - name: Cloud deployment dry run
+        run: |
+          python cloud/build.py
+          cd cloud
+          uv run --locked pywrangler deploy --dry-run

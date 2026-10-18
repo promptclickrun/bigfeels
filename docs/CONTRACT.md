@@ -76,3 +76,6 @@ MCP cannot promise automatic conversation capture for a generic host. A native a
 ## Core Python boundary
 
 `Store(path)` owns transaction and storage rules. `dispatch(principal, operation, payload)` handles scoped memory operations. `LocalClient` replaces network pairing with local filesystem authority while retaining an explicit principal and spaces. `process_pending(limit)` keeps its integer return contract; richer diagnostics live in `status.processing`.
+
+
+Optional self-hosted cloud uses the same memory operations through an explicit HTTPS transport. Pairing, sync, OAuth, and cloud-specific behavior are defined in [cloud-contract.md](cloud-contract.md). The loopback API keeps its existing local trust boundary.

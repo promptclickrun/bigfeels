@@ -8,3 +8,7 @@ prune benchmarks/results
 recursive-include tests *.py
 recursive-include tests *.mjs
 recursive-include src/bigfeels_mem/static *
+
+include cloud/README.md cloud/build.py cloud/pyproject.toml cloud/uv.lock cloud/package.json cloud/package-lock.json cloud/wrangler.jsonc cloud/.dev.vars.example
+include cloud/src/worker.py cloud/src/database.py
+include scripts/test-cloud.py

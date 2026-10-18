@@ -109,3 +109,8 @@ For every interface you install, first run `doctor` and review its runtime and p
 6. confirm inspect no longer finds it.
 
 For automatic capture, also observe a unique event, process or wait for the configured worker, and confirm `status.queue` plus `status.processing`. Queued evidence is not completed learning. No live profile activation, gateway restart, or model login is implied by package installation.
+
+
+## Optional cloud setup
+
+To sync selected spaces or offer remote MCP, deploy the optional Worker in your own Cloudflare account using the [cloud README](cloud/README.md). We recommend Workers Paid for larger sync batches. The local CLI still has no third-party runtime dependencies; Node, uv, and Python 3.13+ are needed only on the deployment machine. Use the same data directory as your existing adapter, and keep a `cloud run` owner alive for short-lived plugin processes.

@@ -13,7 +13,7 @@ from .store import MemoryError, Principal, Store, required, string_list
 
 
 class LocalClient:
-    def __init__(self, data_dir=None, spaces=('owner',), name='local', extractor=None, auto_process=True):
+    def __init__(self, data_dir=None, spaces=('owner',), name='local', extractor=None, auto_process=True, auto_sync=True):
         allowed = string_list(list(spaces), 'spaces')
         if not allowed:
             raise ValueError('At least one memory space is required')
@@ -36,6 +36,10 @@ class LocalClient:
         self._wake = threading.Event()
         self._processing = threading.Lock()
         self._thread = None
+        self._cloud_sync = None
+        if auto_sync and (self.data_dir / 'cloud.json').exists():
+            from .cloud import BackgroundSync
+            self._cloud_sync = BackgroundSync(self.data_dir).start()
         if extractor and auto_process:
             self._thread = threading.Thread(target=self._run, name='bigfeels-local-worker', daemon=True)
             self._thread.start()
@@ -50,6 +54,8 @@ class LocalClient:
             result = self.store.dispatch(self.principal, operation, payload)
         except MemoryError as error:
             raise ClientError(str(error), error.status) from None
+        if self._cloud_sync and operation in ('observe', 'remember', 'correct', 'forget'):
+            self._cloud_sync.wake()
         if operation == 'observe':
             self._wake.set()
         if operation == 'forget':
@@ -102,6 +108,8 @@ class LocalClient:
             self._wake.clear()
 
     def close(self):
+        if self._cloud_sync:
+            self._cloud_sync.close()
         self._stop.set()
         self._wake.set()
         if self._thread and self._thread is not threading.current_thread():

@@ -311,10 +311,15 @@ def serve(store, host='127.0.0.1', port=8765, provider=None, worker_interval=1.0
     worker = BackgroundProcessor(store, provider, interval=worker_interval)
     httpd = create_server(store, host=host, port=port, processor=worker.process_pending)
     worker.start()
+    from .cloud import BackgroundSync
+    cloud_worker = (BackgroundSync(store.path.parent).start()
+                    if (store.path.parent / 'cloud.json').exists() else None)
     try:
         if started:
             started(httpd.server_port)
         httpd.serve_forever()
     finally:
+        if cloud_worker:
+            cloud_worker.close()
         worker.stop()
         httpd.server_close()

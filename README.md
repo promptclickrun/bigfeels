@@ -2,12 +2,13 @@
 
 Portable, private memory for tools and agents.
 
-bigfeels is a host-neutral Python engine with four first-class interfaces:
+bigfeels is a host-neutral Python engine with these interfaces:
 
 - `bigfeels-mem` for direct, JSON-producing local commands
 - MCP over stdio for generic clients
 - an authenticated loopback HTTP API
 - a local browser workspace for save, search, inspection, correction, processing status, and deletion preview
+- optional cloud sync and remote MCP deployed into your own Cloudflare account
 
 Hermes and OpenClaw integrations are optional lifecycle adapters. The engine, CLI, MCP server, HTTP API, and UI do not require either host.
 
@@ -82,9 +83,35 @@ See [docs/CONTRACT.md](docs/CONTRACT.md) and [docs/advanced.md](docs/advanced.md
 
 Adapters can provide automatic capture because they participate in a host's lifecycle. They remain adapters, not prerequisites for the core product. If host model access is unavailable, observations stay queued and explicit memory operations continue to work.
 
+## Optional cloud sync in your own Cloudflare account
+
+**We recommend the Cloudflare Workers Paid plan** when choosing cloud setup, so larger sync batches have more CPU headroom. You own the account, deployment, data, and billing; Bigfeels does not operate a cloud service for you. Local-only use remains the default.
+
+The [cloud README](cloud/README.md) is the complete setup guide for **people and agents**: prerequisites, account verification, manual deployment, secret handling, explicit space selection, first sync, second-device invitations, background sync, remote MCP login, updates, backup/recovery, and troubleshooting.
+
+After deploying the Worker using that guide:
+
+```sh
+bigfeels-mem --data-dir /private/bigfeels cloud connect https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev --name laptop --space owner
+bigfeels-mem --data-dir /private/bigfeels cloud invite --space owner
+bigfeels-mem --data-dir /private/bigfeels cloud run
+```
+
+On another device, run `cloud join URL --name desktop --space owner` and enter the one-time invitation at the private prompt. `sync` performs a single cycle; `cloud status` reports pending rows and sync health. Saves and searches stay local and work offline. Each user deploys one Worker with a durable SQLite database. The cloud runs the same Python memory/search engine.
+
+Remote clients connect to `https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev/mcp` using browser OAuth login or a dedicated device bearer token. Local Hermes/OpenClaw adapters continue using their existing data directories; a persistent `cloud run` process handles short-lived adapter processes.
+
+Generate an optional Obsidian projection locally:
+
+```sh
+bigfeels-mem --data-dir /private/bigfeels wiki export /path/to/ObsidianVault --space owner
+```
+
+Selected data is readable in your Cloudflare account. Cloud mode is not end-to-end encrypted. The wiki and exports are plaintext copies; their external history and Cloudflare recovery history have separate retention. See the [trust and deletion details](cloud/README.md#before-setup) before enabling sync.
+
 ## Data and trust boundary
 
-Storage is local SQLite. Memories retain source evidence, validity, revision history, and uncertainty. Retrieval is scoped before ranking. Remembered text is contextual evidence, never authorization.
+Storage is local SQLite by default. Optional cloud sync copies explicitly selected spaces into the user’s own Cloudflare account. Memories retain source evidence, validity, revision history, and uncertainty. Retrieval is scoped before ranking. Remembered text is contextual evidence, never authorization.
 
 Local scopes constrain integrations and model submissions, but they are not an OS sandbox against another process that can read the same database. Use separate private data directories or OS accounts for separate people. Exports are plaintext. `doctor` reports runtime and permission observations, but it cannot verify Windows ACLs, filesystem locality, synchronization, backups, or copies.
 

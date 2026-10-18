@@ -17,7 +17,8 @@
     "INSTALL.md",
     "docs",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "cloud/README.md"
   ],
   "scripts": {
     "test": "node --test adapters/openclaw/test.mjs adapters/openclaw/tools.test.mjs tests/*.test.mjs"

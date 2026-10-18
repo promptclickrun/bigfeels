@@ -42,3 +42,12 @@ Forgetting closes over supporting evidence, dependent memories, and correction l
 `remember` commits a memory synchronously. `observe` commits source evidence and a job. Workers use leases and bounded batches. Status reports queue states and safe retry/failure information without source text or provider error bodies. A zero process count never implies success.
 
 The system favors auditable behavior, abstention, and explicit capability boundaries over autonomous magic. The bundled replay is a regression fixture, not proof of general superiority.
+
+
+## Optional self-hosted cloud
+
+Cloud setup is opt-in and recommends Cloudflare Workers Paid for sync CPU headroom. Each person owns a deployment with one Python Worker and a SQLite Durable Object. The cloud imports the same Store, retrieval, schema, and merge code through a generated build copy; a small SQL adapter maps database calls to Durable Object storage. Requests run in synchronous storage transactions. No cloud network calls occur inside a database transaction.
+
+Local sync triggers are installed only at connection time, preserve schema version 1, and record row references without historical content. Pull pages hydrate current provenance. Tombstones always win; apply-time deletion closure records additional local deletions. Memory status merges monotonically (superseded, disputed, active, candidate), validity end takes the earliest non-null value, and revision takes the maximum. Immutable content collisions fail atomically. New source-event IDs are stable across devices; extraction jobs never replicate.
+
+Device pairing, invitations, credential rotation/revocation, scoped HTTPS requests, and OAuth browser consent form an explicit internet-facing boundary separate from the loopback server. Selected data is readable at Cloudflare; this is not encrypted store-and-forward. Platform recovery history and external wiki/export copies retain their own history. See the [cloud README](../cloud/README.md) and [sync contract](cloud-contract.md).

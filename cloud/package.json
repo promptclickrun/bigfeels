@@ -1,0 +1,13 @@
+{
+  "name": "bigfeels-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "python3 build.py",
+    "dev": "python3 build.py && uv run --locked pywrangler dev",
+    "deploy": "python3 build.py && uv run --locked pywrangler deploy",
+    "check": "python3 build.py && uv run --locked pywrangler deploy --dry-run"
+  },
+  "devDependencies": {"wrangler": "4.151.1"},
+  "cloudflare": {"bindings": {"ADMIN_PASSWORD": {"description": "A unique random password of at least 32 characters. Keep it in your password manager."}}}
+}

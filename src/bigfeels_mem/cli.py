@@ -234,6 +234,8 @@ def build_parser():
         '--explicit-only', action='store_true',
         help='Disable observe/process and use local storage without providers or remote recall',
     )
+    from .cloud_cli import add_commands
+    add_commands(commands)
     return parser
 
 
@@ -251,7 +253,7 @@ def _local(data_dir, config_path, spaces, *, processing=False, name='cli'):
         data_dir,
         spaces=spaces or ['owner'],
         name=name,
-        auto_process=False,
+        auto_process=False, auto_sync=(name == 'mcp'),
     )
     provider = _provider(client.store, load_config(config_path))
     if processing and provider and provider.can_extract:
@@ -354,7 +356,10 @@ def main(argv=None, stdout=None, stderr=None):
     args = build_parser().parse_args(argv)
     data_dir, database_path, config_path = _paths(args.data_dir)
     try:
-        if args.command == 'init':
+        if args.command in ('cloud', 'sync', 'wiki'):
+            from .cloud_cli import run
+            run(args, data_dir, stdout, stderr)
+        elif args.command == 'init':
             data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             Store(database_path)
             ensure_config(config_path)
@@ -536,7 +541,7 @@ def main(argv=None, stdout=None, stderr=None):
                 # Recall remains local lexical retrieval and no extraction worker exists.
                 client = LocalClient(
                     data_dir, spaces=args.spaces or ['owner'], name='mcp-explicit-only',
-                    auto_process=False,
+                    auto_process=False, auto_sync=False,
                 )
             else:
                 client = _local(

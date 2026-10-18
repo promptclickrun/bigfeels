@@ -60,3 +60,10 @@ bigfeels-mem --data-dir /private/new-store restore memory-export.json
 `serve` binds to loopback only and starts the optional background processor. It does not install a daemon. Configuration changes require restarting that explicitly managed process. The browser UI is optional and static assets reveal no memory without a scoped credential.
 
 No command in this guide installs a host plugin, changes a live profile, starts an OS service, or publishes a package.
+
+
+## User-owned Cloudflare sync
+
+Follow the [cloud setup and operations README](../cloud/README.md) for manual or agent-led deployment. Workers Paid is recommended. Local-only operation remains available. `cloud run` is the persistent sync owner for short-lived adapter processes; `cloud status` reports safe health data. Do not change an adapter's data directory just to turn on cloud sync.
+
+Cloud disconnect preserves local memory and does not delete the remote vault. Device revocation prevents new requests but does not erase existing copies. Keep tombstones in backups and re-establish them before reconnecting stale devices after a historical restore. Wiki export writes managed plaintext files; deletion cannot erase external git/Obsidian backup history.

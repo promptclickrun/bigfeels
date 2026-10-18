@@ -294,7 +294,7 @@ class Store:
             if existing['fingerprint'] != fingerprint:
                 raise MemoryError('Source event already exists with different content', 409)
             return {'id': existing['id'], 'status': 'duplicate'}
-        eid = uid('ev')
+        eid = 'ev_' + identity[:32]
         c.execute('INSERT INTO evidence VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                   (eid, space, identity, source, event_id, session, speaker, content,
                    fingerprint, occurred, now(), expires))
@@ -741,9 +741,19 @@ class Store:
             'failed_jobs': queue['failed'],
             'provider_failures': provider_failures,
         }
-        return {'evidence': count('evidence'), 'memories': count('memories'), 'spaces': list(p.spaces),
-                'queue': queue, 'processing': processing,
-                'providers': dict(self.provider_status), 'schema_version': 1}
+        result = {'evidence': count('evidence'), 'memories': count('memories'), 'spaces': list(p.spaces),
+                  'queue': queue, 'processing': processing,
+                  'providers': dict(self.provider_status), 'schema_version': 1}
+        from . import sync
+        if sync.enabled(c):
+            result['cloud'] = {
+                'enabled': sync.state(c, 'connected', False),
+                'pending_rows': c.execute(f'SELECT COUNT(*) FROM sync_log WHERE seq>? AND space IN ({marks})',
+                                         (sync.state(c, 'pushed', 0), *p.spaces)).fetchone()[0],
+                'last_sync': sync.state(c, 'last_sync'), 'last_error': sync.state(c, 'last_error'),
+                'recommended_plan': 'Workers Paid',
+            }
+        return result
 
     def _export(self, c, p, d):
         marks = ','.join('?' for _ in p.spaces)
