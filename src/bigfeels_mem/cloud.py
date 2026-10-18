@@ -45,7 +45,8 @@ class CloudClient:
             headers['Authorization'] = 'Bearer ' + self.token
         request = urllib.request.Request(self.url + path, data=data, headers=headers)
         try:
-            with self.opener.open(request, timeout=15) as response:
+            # Full 200-reference sync pages take about 12 s on a cold Worker.
+            with self.opener.open(request, timeout=60) as response:
                 raw = response.read(16_000_001)
             if len(raw) > 16_000_000:
                 raise ClientError('Cloud response exceeds limit', 502)
