@@ -18,8 +18,13 @@ def add_commands(commands):
         p.add_argument('--name', default='device')
         p.add_argument('--allow-local', action='store_true', help='Allow loopback HTTP for local integration testing')
         p.add_argument('--interval', type=int, default=30)
+        p.add_argument('--remote', action='store_true',
+                       help='Cloud-only: keep no local copy and answer every call from the vault (no sync)')
     sub.add_parser('status')
     sub.add_parser('sync', help='Synchronize once')
+    backup = sub.add_parser('backup', help='Download the whole vault into a new local store (a restorable snapshot)')
+    backup.add_argument('target', help='A new directory; it must not already hold a store')
+    sub.add_parser('resync', help='Replay every local row to the cloud and read it again (after a cloud restore)')
     sub.add_parser('run', help='Keep syncing in the foreground; suitable for a user service')
     invite = sub.add_parser('invite', help='Create a one-time, ten-minute invitation')
     invite.add_argument('--space', action='append', dest='spaces')
@@ -55,12 +60,29 @@ def run(args, data_dir, stdout, stderr):
         if args.interval < 1:
             raise ValueError('Interval must be at least one second')
         result = cloud.connect(data_dir, args.url, secret, spaces=args.spaces or ['owner'], name=args.name,
-                               invite=args.cloud_command == 'join', allow_local=args.allow_local, interval=args.interval)
+                               invite=args.cloud_command == 'join', allow_local=args.allow_local, interval=args.interval,
+                               remote=args.remote)
         _write(stdout, result)
+        if args.remote:
+            return
         # Pairing is persisted even if bootstrap is offline; a later sync resumes.
         result = cloud.sync_once(data_dir)
+    elif args.cloud_command == 'backup':
+        result = cloud.backup(data_dir, args.target)
+    elif args.cloud_command == 'resync':
+        config, _ = cloud.configured_client(data_dir)
+        if config.get('mode') == 'remote':
+            raise ValueError('Cloud-only mode keeps no local copy to replay')
+        cloud.resync(Store(data_dir / 'memory.sqlite'), config)
+        result = cloud.sync_once(data_dir)
     elif args.cloud_command == 'status':
-        result = cloud.status(Store(data_dir / 'memory.sqlite'))
+        config = cloud.configuration(data_dir)
+        if config and config.get('mode') == 'remote':
+            result = {'enabled': True, 'mode': 'remote', 'spaces': config['spaces'],
+                      'cloud': cloud.CloudClient(config['url'], config['token'],
+                                                 allow_local=config.get('allow_local', False)).info()}
+        else:
+            result = cloud.status(Store(data_dir / 'memory.sqlite'))
     elif args.cloud_command == 'disconnect':
         result = cloud.disconnect(data_dir, offline=args.offline)
     elif args.cloud_command == 'run':

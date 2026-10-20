@@ -57,6 +57,15 @@ $BIGFEELS --data-dir ~/.local/share/bigfeels/data serve
 
 Open `http://127.0.0.1:8765`. Keep the returned credential private. The service does not create an online account.
 
+## Hermes, one shared memory
+
+```sh
+bigfeels-mem setup                   # initialize one store and print the Hermes commands for every profile
+bigfeels-mem setup --apply           # run them (uses `hermes config set`), then restart the gateways
+```
+
+Every profile then reads and writes the same store, and only one process syncs it.
+
 ## Optional extraction provider
 
 Explicit remember/search/context/inspect/correct/forget operations do not need a model. `observe` queues evidence for extraction. To process queued observations in standalone mode, configure an OpenAI-compatible provider:

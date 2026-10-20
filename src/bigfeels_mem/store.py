@@ -33,6 +33,9 @@ MAX_EXTRACTION_ATTEMPTS = 3
 MAX_BUDGET = 256_000
 DELETE_PLAN_TTL_SECONDS = 300
 
+# Bound parameters per IN (...) list. Durable Object SQLite caps a statement at 100 variables.
+SQL_BATCH = 90
+
 
 class MemoryError(Exception):
     def __init__(self, message, status=400):
@@ -628,8 +631,10 @@ class Store:
             # matched there is nothing to add and the graph is not read.
             seeds = list(found) if len(found) < len(eligible) else []
             relation_checks, relation_limited = 0, False
-            for start in range(0, len(seeds), 500):
-                batch = seeds[start:start + 500]
+            # Durable Object SQLite accepts at most 100 bound parameters in a statement (a plain
+            # SQLite build allows far more), so a batch plus its LIMIT must stay below that.
+            for start in range(0, len(seeds), SQL_BATCH):
+                batch = seeds[start:start + SQL_BATCH]
                 marks = ','.join('?' for _ in batch)
                 for near, far in (('source_id', 'target_id'), ('target_id', 'source_id')):
                     room = 1000 - relation_checks
@@ -692,8 +697,8 @@ class Store:
         current = {mid: rowid for rowid, mid in c.execute(
             'SELECT rowid,memory_id FROM vectors WHERE model=?', (model,)) if mid in eligible}
         stale = [rowid for mid, rowid in current.items() if cache.get(mid, (None,))[0] != rowid]
-        for start in range(0, len(stale), 500):
-            batch = stale[start:start + 500]
+        for start in range(0, len(stale), SQL_BATCH):
+            batch = stale[start:start + SQL_BATCH]
             for rowid, mid, stored in c.execute(
                     f'SELECT rowid,memory_id,vector FROM vectors WHERE rowid IN ({",".join("?" for _ in batch)})', batch):
                 values = array('f', json.loads(stored))

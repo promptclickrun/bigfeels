@@ -88,26 +88,68 @@ def row_space(c, table, row):
     return row['space']
 
 
+def journal_seq(c):
+    """Highest journal sequence ever issued. It never decreases, even when entries are coalesced."""
+    try:
+        row = c.execute("SELECT seq FROM sqlite_sequence WHERE name='sync_log'").fetchone()
+    except Exception:
+        row = c.execute('SELECT MAX(seq) FROM sync_log').fetchone()
+    return (row[0] or 0) if row else 0
+
+
+def _logged(c, table, row):
+    """The row's pending journal sequence number, or None when it has no journal entry."""
+    found = c.execute('SELECT seq FROM sync_log WHERE table_name=? AND row_key=?',
+                      (table, key_for(table, row))).fetchone()
+    return found[0] if found else None
+
+
 def read_row(c, table, key):
     columns = key_columns(table)
     row = c.execute(f'SELECT * FROM {table} WHERE ' + ' AND '.join(k + '=?' for k in columns), key).fetchone()
     return dict(row) if row else None
 
 
-def changes(c, spaces, since=0, limit=MAX_ROWS):
+def changes(c, spaces, since=0, limit=MAX_ROWS, *, known_through=None, assume_held=False):
+    """One page of journal references plus the dependency rows a receiver needs to apply them.
+
+    `known_through` is for a cloud answering a pull. The device has already received every journal
+    entry up to its cursor, so a dependency whose entry is at or before that sequence is not sent
+    again: a revision of a much-supported memory then costs a few rows, not its whole evidence set.
+    A dependency with a newer entry, or none, is always sent.
+
+    `assume_held` is for a device pushing. A row with no pending journal entry has been acknowledged
+    by the cloud (or came from it) and has not changed since, so it is not sent again. This holds
+    while the cloud keeps its history; `cloud.sync_once` re-bootstraps when it detects a rollback,
+    and `cloud resync` does it on demand.
+    """
     if type(since) is not int or since < 0 or type(limit) is not int or not 1 <= limit <= MAX_ROWS:
         raise MemoryError('Invalid sync cursor or limit')
+    if known_through is not None and (type(known_through) is not int or known_through < 0):
+        raise MemoryError('Invalid sync cursor or limit')
+
+    def receiver_has(table, row):
+        if known_through is None and not assume_held:
+            return False
+        seq = _logged(c, table, row)
+        if assume_held:
+            return seq is None
+        return seq is not None and seq <= known_through
+
     args = tuple(spaces)
     logs = list(c.execute('SELECT * FROM sync_log WHERE seq>? AND space IN (' +
                          ','.join('?' for _ in args) + ') ORDER BY seq LIMIT ?', (since, *args, limit)))
     collected = {}
-    queue = deque((log['table_name'], read_row(c, log['table_name'], json.loads(log['row_key']))) for log in logs)
+    queue = deque((log['table_name'], read_row(c, log['table_name'], json.loads(log['row_key'])), False)
+                  for log in logs)
     while queue:
-        table, row = queue.popleft()
+        table, row, dependency = queue.popleft()
         if not row:
             continue
         key = (table, key_for(table, row))
         if key in collected:
+            continue
+        if dependency and receiver_has(table, row):
             continue
         if row_space(c, table, row) not in spaces:
             raise MemoryError('Sync dependency crosses spaces', 409)
@@ -118,19 +160,19 @@ def changes(c, spaces, since=0, limit=MAX_ROWS):
         if len(collected) > 20000:
             raise MemoryError('Connected provenance group exceeds sync row limit', 413)
         if table == 'memories':
-            queue.extend(('supports', dict(e)) for e in c.execute('SELECT * FROM supports WHERE memory_id=?', (row['id'],)))
-            queue.extend(('relations', dict(e)) for e in c.execute("SELECT * FROM relations WHERE kind='supersedes' AND (source_id=? OR target_id=?)", (row['id'], row['id'])))
+            queue.extend(('supports', dict(e), True) for e in c.execute('SELECT * FROM supports WHERE memory_id=?', (row['id'],)))
+            queue.extend(('relations', dict(e), True) for e in c.execute("SELECT * FROM relations WHERE kind='supersedes' AND (source_id=? OR target_id=?)", (row['id'], row['id'])))
         elif table == 'supports':
-            queue.append(('memories', read_row(c, 'memories', [row['memory_id']])))
-            queue.append(('evidence', read_row(c, 'evidence', [row['evidence_id']])))
+            queue.append(('memories', read_row(c, 'memories', [row['memory_id']]), True))
+            queue.append(('evidence', read_row(c, 'evidence', [row['evidence_id']]), True))
         elif table == 'relations':
             for k in ('source_id', 'target_id'):
-                queue.append(('memories', read_row(c, 'memories', [row[k]])))
+                queue.append(('memories', read_row(c, 'memories', [row[k]]), True))
     result = {'protocol': PROTOCOL, 'changes': list(collected.values()),
               'cursor': logs[-1]['seq'] if logs else since, 'has_more': len(logs) == limit}
     if len(json.dumps(result, ensure_ascii=False).encode()) > MAX_BYTES:
         if limit > 1:
-            return changes(c, spaces, since, max(1, limit // 2))
+            return changes(c, spaces, since, max(1, limit // 2), known_through=known_through, assume_held=assume_held)
         raise MemoryError('A connected provenance group exceeds the 2 MB sync limit', 413)
     return result
 
@@ -158,7 +200,34 @@ def _erase(store, c, item_id, space):
         c.execute("INSERT OR REPLACE INTO metadata VALUES ('needs_purge','1')")
 
 
-def apply(store, c, envelope, spaces):
+def _settle(c, rows):
+    """Forget journal entries for rows that now equal what the sender has.
+
+    A device that pulls a row must not push it straight back: that echo re-uploads the whole vault
+    when a device joins. Only rows still differing from the sender's copy (a local edit that merged
+    ahead of it) and rows the sender never mentioned (locally discovered deletions) stay queued.
+    """
+    for table, row in rows:
+        if table == 'spaces':
+            key = row
+        elif table in ('supports', 'relations'):
+            key = dict(row)
+            if table == 'supports':
+                alias = c.execute('SELECT canonical FROM sync_alias WHERE id=?', (key['evidence_id'],)).fetchone()
+                if alias:
+                    key['evidence_id'] = alias[0]
+        else:
+            key = row
+        stored = read_row(c, table, [key[k] for k in key_columns(table)])
+        if stored is None:
+            continue
+        if table in ('memories', 'evidence', 'tombstones') and stored != row:
+            continue
+        c.execute('DELETE FROM sync_log WHERE table_name=? AND row_key=?', (table, key_for(table, stored)))
+
+
+def apply(store, c, envelope, spaces, *, quiet=False):
+    """Merge a page into this replica. `quiet` marks a device applying what the cloud sent it."""
     if not isinstance(envelope, dict) or envelope.get('protocol') != PROTOCOL:
         raise MemoryError('Incompatible sync protocol', 409)
     incoming = envelope.get('changes')
@@ -265,18 +334,23 @@ def apply(store, c, envelope, spaces):
                 mutable = {'status', 'revision', 'valid_until'} if table == 'memories' else {'content', 'recorded_at', 'occurred_at'}
                 if any(old[k] != row[k] for k in row if k not in mutable):
                     raise MemoryError('Immutable sync fields differ', 409)
+                # Write only real changes: replayed echoes then cost no row writes on the cloud.
                 if table == 'memories':
                     status = max((old['status'], row['status']), key=STATUS.get)
                     ends = [x for x in (old['valid_until'], row['valid_until']) if x]
-                    c.execute('UPDATE memories SET status=?,revision=?,valid_until=? WHERE id=?',
-                              (status, max(old['revision'], row['revision']), min(ends) if ends else None, row['id']))
+                    merged = (status, max(old['revision'], row['revision']), min(ends) if ends else None)
+                    if merged != (old['status'], old['revision'], old['valid_until']):
+                        c.execute('UPDATE memories SET status=?,revision=?,valid_until=? WHERE id=?',
+                                  (*merged, row['id']))
                 elif old['content'] is None or row['content'] is None:
-                    c.execute('UPDATE evidence SET content=NULL WHERE id=?', (row['id'],))
+                    if old['content'] is not None:
+                        c.execute('UPDATE evidence SET content=NULL WHERE id=?', (row['id'],))
                 elif old['content'] != row['content']:
                     raise MemoryError('Immutable evidence content differs', 409)
                 if table == 'evidence':
-                    c.execute('UPDATE evidence SET recorded_at=?,occurred_at=? WHERE id=?',
-                              (min(old['recorded_at'], row['recorded_at']), min(old['occurred_at'], row['occurred_at']), row['id']))
+                    merged = (min(old['recorded_at'], row['recorded_at']), min(old['occurred_at'], row['occurred_at']))
+                    if merged != (old['recorded_at'], old['occurred_at']):
+                        c.execute('UPDATE evidence SET recorded_at=?,occurred_at=? WHERE id=?', (*merged, row['id']))
             else:
                 _insert(c, table, row)
         else:
@@ -324,4 +398,6 @@ def apply(store, c, envelope, spaces):
     if sum(counts) > MAX_PENDING_TOTAL or any(n > MAX_PENDING_PER_SPACE for n in counts):
         raise MemoryError('Pending sync references exceed capacity; send missing endpoints first', 413)
     index_claims(c)
+    if quiet:
+        _settle(c, rows)
     return {'status': 'applied'}

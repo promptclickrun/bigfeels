@@ -378,7 +378,7 @@ class BigfeelsMemoryProvider(MemoryProvider):
                 )
                 config = _native_config(values)
                 self._config = config
-                local_cls = _import_core("bigfeels_mem.local").LocalClient
+                local_cls = _import_core("bigfeels_mem.local").open_client
                 data_dir = config.data_dir
                 hermes_home = kwargs.get("hermes_home")
                 if data_dir is None and isinstance(hermes_home, str) and hermes_home.strip():

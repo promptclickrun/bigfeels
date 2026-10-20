@@ -83,23 +83,19 @@ See [docs/CONTRACT.md](docs/CONTRACT.md) and [docs/advanced.md](docs/advanced.md
 
 Adapters can provide automatic capture because they participate in a host's lifecycle. They remain adapters, not prerequisites for the core product. If host model access is unavailable, observations stay queued and explicit memory operations continue to work.
 
-## Optional cloud sync in your own Cloudflare account
+## Optional cloud in your own Cloudflare account
 
-**We recommend the Cloudflare Workers Paid plan** when choosing cloud setup, so larger sync batches have more CPU headroom. You own the account, deployment, data, and billing; Bigfeels does not operate a cloud service for you. Local-only use remains the default.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/promptclickrun/bigfeels/tree/main/cloud)
 
-The [cloud README](cloud/README.md) is the complete setup guide for **people and agents**: prerequisites, account verification, manual deployment, secret handling, explicit space selection, first sync, second-device invitations, background sync, remote MCP login, updates, backup/recovery, and troubleshooting.
-
-After deploying the Worker using that guide:
+One click creates the Worker and database in **your** account; you set one password, then connect with one command. Bigfeels runs no service of its own, and local-only use stays the default. The [cloud README](cloud/README.md) has the full guide, cost notes and recovery steps.
 
 ```sh
-bigfeels-mem --data-dir /private/bigfeels cloud connect https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev --name laptop --space owner
-bigfeels-mem --data-dir /private/bigfeels cloud invite --space owner
-bigfeels-mem --data-dir /private/bigfeels cloud run
+bigfeels-mem cloud connect https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev            # local copy that syncs
+bigfeels-mem cloud connect https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev --remote   # cloud-only, no local copy
+bigfeels-mem cloud invite --space owner                                              # add another computer
 ```
 
-On another device, run `cloud join URL --name desktop --space owner` and enter the one-time invitation at the private prompt. `sync` performs a single cycle; `cloud status` reports pending rows and sync health. Saves and searches stay local and work offline. Each user deploys one Worker with a durable SQLite database. The cloud runs the same Python memory/search engine.
-
-Remote clients connect to `https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev/mcp` using browser OAuth login or a dedicated device bearer token. Local Hermes/OpenClaw adapters continue using their existing data directories; a persistent `cloud run` process handles short-lived adapter processes.
+Several agents on one computer should share one store: `bigfeels-mem setup` points every Hermes profile at it (add `--apply` to run the commands). Sync is incremental: a changed memory moves only what the other side lacks, a quiet device makes one small request and backs off to every five minutes, and a restored cloud is detected and refilled. `sync` performs one cycle; `cloud status` reports pending rows and sync health. Remote clients connect to `https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev/mcp` using browser OAuth login or a device bearer token.
 
 Generate an optional Obsidian projection locally:
 

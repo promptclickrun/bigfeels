@@ -3,6 +3,7 @@
 Use scripts/test-cloud.sh. Never point this at a personal/production vault.
 """
 import base64
+import gzip
 import hashlib
 import json
 import os
@@ -87,9 +88,46 @@ class RuntimeTests(unittest.TestCase):
             sync_once(a)
             sync_once(b)
             self.assertEqual(sa.dispatch(principal, 'status', {})['memories'], sb.dispatch(principal, 'status', {})['memories'])
+            self.worker_extras(url, remote)
             self.oauth_flow(url, secret)
             disconnect(b)
             disconnect(a)
+
+    def worker_extras(self, url, remote):
+        # The landing page tells the owner the next step and shows no stored data.
+        with urllib.request.urlopen(url + '/') as page:
+            html = page.read().decode()
+            self.assertEqual(200, page.status)
+        self.assertIn('bigfeels-mem cloud connect', html)
+        self.assertNotIn('lavender', html)
+        # A pull names its vault and the journal head, so devices can notice a restored cloud.
+        pulled = remote.request('/v1/sync/pull?since=0')
+        self.assertTrue(pulled['vault_id'].startswith('vault_'))
+        self.assertGreaterEqual(pulled['head'], pulled['cursor'])
+        self.assertTrue(remote.request('/v1/info')['configured'])
+        # The journal head must never go backwards, even when forgetting removes the newest entry:
+        # a falling head would look like a restored cloud and make every device replay its rows.
+        fresh = remote.request('/v1/remember', {'space': 'owner', 'content': 'Head probe ' + uuid.uuid4().hex})
+        before = remote.request('/v1/info')['head']
+        preview = remote.request('/v1/forget_preview', {'id': fresh['id']})
+        remote.request('/v1/forget', {'id': fresh['id'], 'plan_token': preview['plan_token']})
+        self.assertGreaterEqual(remote.request('/v1/info')['head'], before)
+        # A gzip request body is accepted, and an oversized one is refused before it is parsed.
+        body = gzip.compress(json.dumps({'protocol': 1, 'changes': []}).encode())
+        request = urllib.request.Request(url + '/v1/sync/push', data=body, method='POST', headers={
+            'Authorization': 'Bearer ' + remote.token, 'Content-Type': 'application/json',
+            'Content-Encoding': 'gzip', 'User-Agent': 'bigfeels-test'})
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual(200, response.status)
+            self.assertEqual('1', response.headers['X-Bigfeels-Gzip'])
+        bomb = gzip.compress(b'{"protocol":1,"changes":[],"pad":"' + b'a' * 3_000_000 + b'"}')
+        request = urllib.request.Request(url + '/v1/sync/push', data=bomb, method='POST', headers={
+            'Authorization': 'Bearer ' + remote.token, 'Content-Type': 'application/json',
+            'Content-Encoding': 'gzip', 'User-Agent': 'bigfeels-test'})
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(request)
+        self.assertEqual(413, refused.exception.code)
+        refused.exception.close()
 
     def oauth_flow(self, url, secret):
         public = CloudClient(url, allow_local=True)
