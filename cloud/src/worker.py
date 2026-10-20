@@ -79,12 +79,12 @@ class MemoryVault(DurableObject):
             self.ctx.storage.transactionSync(lambda: self.service.limit((request.headers.get('CF-Connecting-IP') or 'local') + ':' + str(maximum), maximum))
             supplied_origin = request.headers.get('Origin')
             allowed = [origin] + [s.strip() for s in getattr(self.env, 'ALLOWED_ORIGINS', '').split(',') if s.strip()]
-            if on_files:
-                # Obsidian sends these origins; any other browser page is refused (cached Basic credentials).
-                allowed += ['app://obsidian.md', 'capacitor://localhost', 'http://localhost']
-            if supplied_origin and supplied_origin not in allowed:
+            # The files route authenticates every request with an explicit login and sends no CORS headers, so
+            # a web page cannot read it or preflight a write. Obsidian's apps send varying origins
+            # (app://obsidian.md, capacitor://localhost, https://localhost), so no origin list is applied there.
+            if supplied_origin and not on_files and supplied_origin not in allowed:
                 raise MemoryError('Origin is not allowed', 403)
-            if supplied_origin:
+            if supplied_origin and not on_files:
                 cors = {'Access-Control-Allow-Origin': supplied_origin,
                         'Access-Control-Expose-Headers': 'WWW-Authenticate'}
             protocol = request.headers.get('MCP-Protocol-Version')

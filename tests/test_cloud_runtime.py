@@ -136,6 +136,10 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn(probe, dav('GET', paths[0])[1])
         status, _ = dav('PUT', '/dav/owner/notes/new-file.md', b'A file made in Obsidian ' + uuid.uuid4().hex.encode())
         self.assertEqual(201, status)
+        # Obsidian's mobile app sends an Origin that varies by platform; it must not be refused.
+        for origin in ('app://obsidian.md', 'capacitor://localhost', 'https://localhost', 'ionic://localhost'):
+            status, _ = dav('PROPFIND', '/dav/bigfeels/', headers={'Depth': '0', 'Origin': origin})
+            self.assertEqual((origin, 207), (origin, status))
         # Without a login the route answers 401 and asks for Basic credentials.
         try:
             urllib.request.urlopen(urllib.request.Request(url + '/dav/owner/', method='PROPFIND'))
