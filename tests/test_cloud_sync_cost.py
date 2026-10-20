@@ -292,3 +292,33 @@ class OlderWorkerTests(unittest.TestCase):
             self.assertEqual(0, sync_once(b_dir)['moved'])
             # Without a vault_id on the pull, the client asks /v1/info once: still a handful of requests.
             self.assertLessEqual(len(old.window(idle)), 2)
+
+
+class DurableObjectLimitTests(unittest.TestCase):
+    """Cloudflare's Durable Object SQLite refuses statements with more than 100 bound parameters."""
+
+    def test_recall_stays_under_the_parameter_limit_with_many_contradictions(self):
+        import sqlite3
+        from contextlib import contextmanager
+
+        class Limited(Store):
+            @contextmanager
+            def connection(self, write=False):
+                with super().connection(write) as c:
+                    c.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 100)
+                    yield c
+
+        with tempfile.TemporaryDirectory() as t:
+            store = Limited(Path(t) / 'memory.sqlite')
+            # Many memories that match one query and that the matcher must expand through edges.
+            for i in range(150):
+                store.dispatch(P, 'remember', {'space': 'owner', 'content': f'Preference note {i} about preferences',
+                                               'key': f'pref.{i % 3}', 'kind': 'preference'})
+            # Unrelated memories keep "every eligible memory matched" false, which is what makes the
+            # matcher expand along edges in batches (the code that once exceeded 100 parameters).
+            for i in range(20):
+                store.dispatch(P, 'remember', {'space': 'owner', 'content': f'Unrelated gardening fact {i}'})
+            found = store.dispatch(P, 'context', {'query': 'preferences', 'budget': 4000})
+            self.assertIn(found['status'], ('ok', 'empty'))
+            found = store.dispatch(P, 'search', {'query': 'preferences', 'budget': 4000})
+            self.assertTrue(found['memories'])

@@ -1,6 +1,7 @@
 """User-owned Worker + one durable vault per deployment. Never log content."""
 import asyncio
 import json
+import traceback
 import zlib
 from urllib.parse import parse_qs, urlsplit
 from workers import WorkerEntrypoint, DurableObject, Response
@@ -161,7 +162,10 @@ class MemoryVault(DurableObject):
             return reply(e.status, {'error': str(e)}, {**headers, **cors})
         except (ValueError, TypeError, KeyError, UnicodeError):
             return reply(400, {'error': 'Invalid request'}, cors)
-        except Exception:
+        except Exception as error:
+            # Log where it failed, never what it held: exception text can carry remembered content.
+            frames = traceback.extract_tb(error.__traceback__)[-4:]
+            print('internal_error', type(error).__name__, ' < '.join(f'{f.name}:{f.lineno}' for f in reversed(frames)))
             return reply(500, {'error': 'Internal cloud service error'}, cors)
 
     async def schedule_maintenance(self):
