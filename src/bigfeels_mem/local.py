@@ -114,3 +114,12 @@ class LocalClient:
         self._wake.set()
         if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=2)
+
+
+def open_client(data_dir=None, **options):
+    """A LocalClient, or a RemoteClient when this data directory is paired in cloud-only mode."""
+    from . import cloud
+    directory = Path(data_dir).expanduser() if data_dir else default_data_dir()
+    if cloud.is_remote(directory):
+        return cloud.RemoteClient(directory, **{k: v for k, v in options.items() if k != 'auto_sync'})
+    return LocalClient(directory, **options)

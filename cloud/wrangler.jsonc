@@ -6,6 +6,7 @@
   "compatibility_flags": ["python_workers"],
   "durable_objects": {"bindings": [{"name": "VAULT", "class_name": "MemoryVault"}]},
   "migrations": [{"tag": "v1", "new_sqlite_classes": ["MemoryVault"]}],
+  "secrets": {"required": ["ADMIN_PASSWORD"]},
   "vars": {"SYNC_SPACES": "owner", "ALLOWED_ORIGINS": "", "RERANK_ENABLED": "false"},
   "triggers": {"crons": ["0 * * * *"]},
   "observability": {"enabled": true, "head_sampling_rate": 0.1}

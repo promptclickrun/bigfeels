@@ -12,7 +12,7 @@ import urllib.parse
 
 from .client import ClientError, MemoryClient
 from .mcp import serve_stdio
-from .local import LocalClient
+from .local import LocalClient, open_client
 from .paths import default_data_dir
 from .providers import OpenAIProvider, ProviderError
 from .server import serve
@@ -132,6 +132,11 @@ def build_parser():
     commands = parser.add_subparsers(dest='command', required=True)
 
     commands.add_parser('init', help='Initialize private local storage')
+    setup = commands.add_parser('setup', help='One-command install for Hermes: one shared memory for every profile')
+    setup.add_argument('--hermes-home', help='Hermes home (default: $HERMES_HOME or ~/.hermes)')
+    setup.add_argument('--profile', action='append', dest='profiles',
+                       help='Profile to share the memory (repeatable; default: every profile found)')
+    setup.add_argument('--apply', action='store_true', help='Run the hermes commands instead of printing them')
 
     remember = commands.add_parser('remember', help='Save an explicit memory and print its JSON record')
     remember.add_argument('content')
@@ -249,12 +254,14 @@ def _payload(arguments, *names):
 
 
 def _local(data_dir, config_path, spaces, *, processing=False, name='cli'):
-    client = LocalClient(
+    client = open_client(
         data_dir,
         spaces=spaces or ['owner'],
         name=name,
         auto_process=False, auto_sync=(name == 'mcp'),
     )
+    if not isinstance(client, LocalClient):
+        return client
     provider = _provider(client.store, load_config(config_path))
     if processing and provider and provider.can_extract:
         client.extractor = provider
@@ -359,6 +366,9 @@ def main(argv=None, stdout=None, stderr=None):
         if args.command in ('cloud', 'sync', 'wiki'):
             from .cloud_cli import run
             run(args, data_dir, stdout, stderr)
+        elif args.command == 'setup':
+            from .setup_hermes import run_setup
+            _write(stdout, run_setup(data_dir, args))
         elif args.command == 'init':
             data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             Store(database_path)
@@ -550,7 +560,7 @@ def main(argv=None, stdout=None, stderr=None):
             try:
                 serve_stdio(client, sys.stdin, stdout, explicit_only=args.explicit_only)
             finally:
-                if isinstance(client, LocalClient):
+                if hasattr(client, 'close'):
                     client.close()
         return 0
     except (MemoryError, ClientError, ProviderError, OSError, ValueError, json.JSONDecodeError) as exc:

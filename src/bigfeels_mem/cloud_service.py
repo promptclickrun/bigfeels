@@ -68,6 +68,7 @@ class CloudService:
         if path == '/v1/info':
             with self.store.connection() as c:
                 return {'protocol': sync.PROTOCOL, 'version': '0.1.0', 'vault_id': sync.state(c, 'vault_id'),
+                        'head': sync.journal_seq(c), 'configured': len(self.password) >= 32,
                         'recommended_plan': 'Workers Paid', 'max_batch_bytes': sync.MAX_BYTES,
                         'features': ['sync', 'search', 'remote_mcp', 'oauth_pkce']}
         if path == '/v1/devices/connect':
@@ -118,7 +119,9 @@ class CloudService:
             except (ValueError, TypeError):
                 raise MemoryError('Invalid cursor') from None
             with self.store.connection() as c:
-                return sync.changes(c, device['spaces'], cursor)
+                page = sync.changes(c, device['spaces'], cursor, known_through=cursor)
+                # `head` lets a device notice a restored cloud: its cursor can never exceed it.
+                return {**page, 'head': sync.journal_seq(c), 'vault_id': sync.state(c, 'vault_id')}
         if path == '/v1/sync/push':
             with self.store.connection(True) as c:
                 return sync.apply(self.store, c, payload, device['spaces'])

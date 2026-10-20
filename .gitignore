@@ -14,5 +14,4 @@ node_modules/
 .env
 .venv-workers/
 python_modules/
-cloud/src/bigfeels_mem/
 cloud/pylock.toml

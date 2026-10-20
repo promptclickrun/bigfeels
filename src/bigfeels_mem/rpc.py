@@ -62,7 +62,7 @@ def main(argv=None, instream=None, outstream=None):
         if not isinstance(operation, str) or not isinstance(payload, dict):
             raise ValueError('Invalid request')
         local = LocalClient(args.data_dir, spaces=args.spaces or ['owner'], name='native-bridge',
-                            extractor=_HostExtractor(instream, outstream), auto_process=False)
+                            extractor=_HostExtractor(instream, outstream), auto_process=False, auto_sync=False)
         if operation == 'process':
             result = {'processed': local.process_pending(payload.get('limit', 8))}
         else:

@@ -1,6 +1,7 @@
 """User-owned Worker + one durable vault per deployment. Never log content."""
-import json
 import asyncio
+import json
+import zlib
 from urllib.parse import parse_qs, urlsplit
 from workers import WorkerEntrypoint, DurableObject, Response
 from database import CloudStore
@@ -9,7 +10,7 @@ from bigfeels_mem.cloud_oauth import OAuth
 from bigfeels_mem.store import MemoryError
 from bigfeels_mem.sync import MAX_BYTES
 
-HEADERS = {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+HEADERS = {'X-Bigfeels-Gzip': '1', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
            'Referrer-Policy': 'no-referrer',
            'Content-Security-Policy': "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"}
 
@@ -22,6 +23,30 @@ def reply(status, body, extra=None):
     return Response(body, status=status, headers=headers)
 
 
+def landing(origin, configured):
+    """A public page that shows the owner their next step. It reveals no vault data or secrets."""
+    ready = ('<p><b>Ready.</b> Connect a computer with this command:</p>'
+             f'<pre>bigfeels-mem cloud connect {origin}</pre>') if configured else (
+             '<p><b>Almost there.</b> Set the <code>ADMIN_PASSWORD</code> secret to a random value of at least '
+             '32 characters (Workers &amp; Pages, this Worker, Settings, Variables and Secrets), then reload.</p>')
+    return ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>bigfeels memory vault</title>'
+            '<style>body{font:16px system-ui;max-width:34rem;margin:3rem auto;padding:0 1rem;'
+            'color:#1d1d1f;background:#fff}pre{background:#f2f2f4;padding:.8rem;border-radius:8px;overflow:auto}'
+            '@media(prefers-color-scheme:dark){body{color:#f2f2f4;background:#111}pre{background:#222}}</style>'
+            '<h1>bigfeels memory vault</h1>' + ready +
+            '<p>Your memories live in your own Cloudflare account. This page shows nothing stored in the vault.</p>')
+
+
+def inflate(raw, limit):
+    """Decompress a gzip request body, refusing anything that expands past `limit` bytes."""
+    inflater = zlib.decompressobj(31)
+    data = inflater.decompress(bytes(raw), limit + 1)
+    if len(data) > limit or inflater.unconsumed_tail:
+        raise MemoryError('Request exceeds 2 MB', 413)
+    return data
+
+
 def parameters(raw):
     return {k: v if k == 'spaces' else v[-1] for k, v in parse_qs(raw, keep_blank_values=True).items()}
 
@@ -29,6 +54,7 @@ def parameters(raw):
 class MemoryVault(DurableObject):
     def __init__(self, ctx, env):
         super().__init__(ctx, env)
+        self.maintained = False
         self.ctx.storage.transactionSync(self.initialize)
 
     def initialize(self):
@@ -65,6 +91,10 @@ class MemoryVault(DurableObject):
                 token = (request.headers.get('Authorization') or '').removeprefix('Bearer ')
                 self.service.authenticate(token, origin + '/mcp')
                 return reply(405, {'error': 'This stateless MCP endpoint accepts POST'}, {'Allow': 'POST'})
+            if request.method == 'GET' and p.path in ('', '/'):
+                with self.store.connection() as c:
+                    configured = len(self.service.password) >= 32
+                return reply(200, landing(origin, configured), {'Content-Type': 'text/html; charset=utf-8'})
             public_get = p.path.startswith('/.well-known/') or p.path in ('/oauth/authorize', '/v1/info', '/v1/sync/pull')
             if request.method not in ('GET', 'POST') or (request.method == 'GET' and not public_get):
                 raise MemoryError('Method not allowed', 405)
@@ -79,6 +109,11 @@ class MemoryVault(DurableObject):
                     raw.extend(chunk)
                     if len(raw) > MAX_BYTES:
                         raise MemoryError('Request exceeds 2 MB', 413)
+                if (request.headers.get('Content-Encoding') or '').lower() == 'gzip':
+                    try:
+                        raw = inflate(raw, MAX_BYTES)
+                    except zlib.error:
+                        raise MemoryError('Request body is not valid gzip') from None
                 kind = (request.headers.get('Content-Type') or '').split(';')[0]
                 if kind == 'application/json':
                     payload = json.loads(raw)
@@ -95,7 +130,11 @@ class MemoryVault(DurableObject):
                 raise MemoryError('Workers AI reranking is not enabled', 400)
             token = (request.headers.get('Authorization') or '').removeprefix('Bearer ')
             def operation():
-                self.store.maintenance()
+                # Maintenance runs from the hourly alarm and on the first request after a cold start,
+                # never per request: its evidence scan reads every row.
+                if not self.maintained:
+                    self.maintained = True
+                    self.store.maintenance()
                 if p.path.startswith('/oauth/') or p.path.startswith('/.well-known/'):
                     return OAuth(self.service, origin).handle(p.path, request.method, payload, request.headers.get('Cookie') or '')
                 result = self.service.handle(p.path, payload, token, parameters(p.query), origin)

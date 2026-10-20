@@ -2,7 +2,34 @@
 
 Deploy Bigfeels into **your Cloudflare account**. There is no Bigfeels-hosted service, shared database, subscription, or central credential server. You own the Worker, durable database, access credentials, billing, and updates. Your computers keep local SQLite stores for fast search and offline writes.
 
-**We recommend Cloudflare Workers Paid for every cloud setup**, particularly for larger initial uploads and sync batches. It provides more CPU headroom than Workers Free. The base subscription is currently $5/month, with usage charges possible; check [current pricing](https://developers.cloudflare.com/workers/platform/pricing/) and [CPU limits](https://developers.cloudflare.com/workers/platform/limits/) before subscribing. Bigfeels does not change your billing plan. Paid does not remove Bigfeels' request-size limits.
+## Deploy in one click
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/promptclickrun/bigfeels/tree/main/cloud)
+
+1. Press the button and sign in to Cloudflare and GitHub. Cloudflare copies this folder into a new repository in your GitHub account, creates the Worker and its Durable Object database, and deploys it.
+2. When the form asks for `ADMIN_PASSWORD`, enter a unique random password of **at least 32 characters** (`openssl rand -hex 32` makes one). Keep it in your password manager.
+3. When the deploy finishes, open your Worker's address (`https://<name>.<subdomain>.workers.dev`). The page shows your next step: the exact command to connect your first computer.
+4. On a computer with [Python 3.11+](https://www.python.org/downloads/), install bigfeels and connect. The command asks for your password privately:
+
+   ```sh
+   pipx install "git+https://github.com/promptclickrun/bigfeels.git"
+   bigfeels-mem cloud connect https://<name>.<subdomain>.workers.dev
+   ```
+
+   Your existing memories upload in the background. Add more computers with `cloud invite` and `cloud join`.
+
+**Pick how your agents use it.** One vault serves both layouts:
+
+| Layout | Command | Best for |
+| --- | --- | --- |
+| **Cloud-only** (no local copy) | `cloud connect URL --remote` | Several agents or computers sharing one memory. Nothing is downloaded or synced, so nothing is duplicated. Each recall is a network call, and the vault is the only copy. |
+| **Local copy that syncs** | `cloud connect URL` | One computer that wants fast offline recall and a cloud backup. Use **one** data directory per computer. |
+
+Several agents on one computer should share one data directory (`bigfeels-mem setup` does this). Two directories on one computer, each paired to the vault, each download and upload the whole memory; `cloud connect` warns when it sees that.
+
+**Plan and cost.** Workers Free can hold a small memory. Workers Paid ($5/month) is recommended for a large first upload and more CPU headroom; the button cannot choose a plan, so upgrade in your Cloudflare dashboard if a sync reports a limit. Check [current pricing](https://developers.cloudflare.com/workers/platform/pricing/) first. Paid does not remove bigfeels' request-size limits. The Worker does no work while nothing connects to it.
+
+**Updates.** The button makes your copy of this folder in GitHub. Pull new versions from `promptclickrun/bigfeels` into that repository (or re-run the button into a fresh one) and Cloudflare redeploys. Keep the Worker name and the `MemoryVault` class unchanged, because renaming can create a different database.
 
 ## What this includes
 
@@ -24,7 +51,9 @@ Selected evidence and memories are **readable by your Cloudflare account and Clo
 
 The deployment machine needs Git, Node 22+, Python 3.13+, and [uv](https://docs.astral.sh/uv/getting-started/installation/). Local memory clients need only Python 3.11+ with SQLite FTS5. Cloudflare's [Python deployment tooling](https://developers.cloudflare.com/workers/languages/python/packages/) is isolated in `cloud/`.
 
-## Manual deployment
+## Manual deployment (command line)
+
+Use this when you prefer the terminal to the button.
 
 1. Clone or fork the **whole repository**. The build copies the current engine from `src/bigfeels_mem`; copying only `cloud/` leaves out the shared engine.
 
@@ -46,9 +75,9 @@ The deployment machine needs Git, Node 22+, Python 3.13+, and [uv](https://docs.
 4. Deploy and set a unique, random administrator password of at least 32 characters. Generate it in your password manager. The secret command prompts privately; do not put the password in a command argument, commit, chat, or deployment log.
 
    ```sh
-   uv run --locked pywrangler deploy --dry-run
-   uv run --locked pywrangler deploy
-   uv run --locked pywrangler secret put ADMIN_PASSWORD
+   npx wrangler deploy --dry-run
+   npx wrangler deploy
+   npx wrangler secret put ADMIN_PASSWORD
    ```
 
    The first deployment creates the Durable Object namespace. Tables initialize automatically; no manual SQL migration command is needed. Pairing refuses to work until the password is configured. Keep the generated `https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev` URL.
@@ -192,16 +221,15 @@ Update your checkout/fork, reinstall the Python CLI, rebuild the cloud bundle, r
 python3 cloud/build.py
 cd cloud
 npm ci
-uv sync --locked
-uv run --locked pywrangler deploy --dry-run
-uv run --locked pywrangler deploy
+npx wrangler deploy --dry-run
+npx wrangler deploy
 ```
 
 Use `bigfeels-mem export --output /private/backup.json --space owner` for a portable local backup. Restore into a **new empty data directory** with `bigfeels-mem --data-dir /private/recovery restore /private/backup.json`, inspect it, and only then connect that store. Exports are plaintext and contain tombstones, which must survive recovery. Never edit out deletion markers to make an import succeed.
 
 Cloudflare provides [point-in-time recovery for durable SQLite](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/). That platform history can retain deleted data for up to 30 days. This release does not create nightly R2 copies. Each synced local store is an additional copy, not protection against a deletion that correctly propagates everywhere.
 
-After a cloud rollback, stop syncing devices, preserve a current local copy including tombstones, then disconnect/reconnect that current copy to reset cursors and replay deletion history. Sync it fully before reconnecting older devices. Do not treat a historical cloud restore as a privacy-safe recovery by itself. If the cloud database was replaced, its new `vault_id` causes clients to refuse sync until they reconnect deliberately.
+**After a cloud restore.** The cloud reports the highest journal number it has issued. A device that has read further than that knows the cloud lost history, replays every local row (deletion markers included) and reads the cloud again, so lost memories are uploaded again and no deleted memory comes back. A restore that has already grown past a device's last view cannot be told apart this way; run `bigfeels-mem cloud resync` on your most current computer to force the same replay, and then sync the others. Do not treat a historical cloud restore as a privacy-safe recovery by itself. If the cloud database was replaced, its new `vault_id` causes clients to refuse sync until they reconnect deliberately. Cloud-only setups (`--remote`) have no local copy: the vault's own backups are the only recovery, so export regularly with `bigfeels-mem export`.
 
 Deleting a deployment requires removing its Durable Object data/namespace as well as the Worker using Cloudflare's account tools; deleting a Worker alone is not a guarantee that stored data or platform recovery history vanished. That destructive account operation is separate from disconnect.
 
@@ -230,11 +258,11 @@ From the repository root:
 PYTHONPATH=src python3 -m unittest discover -s tests
 npm test
 python3 scripts/test-cloud.py
-python3 cloud/build.py
+python3 cloud/build.py --check
 cd cloud
-uv run --locked pywrangler deploy --dry-run
+npm run check
 ```
 
 The isolated runtime harness runs on macOS/Linux; the ordinary CLI test matrix also covers Windows. The cloud test creates an isolated temporary Worker, two real SQLite clients, and a random test password. It verifies initial upload, space exclusion, offline deletion closure, remote save/search parity, MCP, browser consent, PKCE token exchange, refresh, and revocation. It stops its runtime and deletes its test data. Unit tests cover merge ordering, no-op replay, field conflicts, retention, and wiki ownership. These are local-runtime checks, not a claim that your account or third-party MCP app has been tested.
 
-The Python Worker imports a generated copy of the canonical engine via `cloud/build.py`; that directory, dependency environments, secrets, and local runtime state are ignored by git. Remove `.venv-workers`, `python_modules`, and `.wrangler` when no longer needed. Keep `uv.lock` and `package-lock.json` for repeatable deployments.
+The Python Worker imports a copy of the canonical engine in `cloud/src/bigfeels_mem/`. It is committed because Deploy to Cloudflare treats `cloud/` as the whole repository; run `python3 cloud/build.py` after changing the engine (CI fails if the copy is stale). Dependency environments, secrets, and local runtime state are ignored by git. Remove `.venv-workers`, `python_modules`, and `.wrangler` when no longer needed. Keep `uv.lock` and `package-lock.json` for repeatable deployments.

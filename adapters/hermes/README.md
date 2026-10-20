@@ -14,6 +14,9 @@ For an existing Mnemosyne provider, follow the separate
 not switch profiles. Set the intended `HERMES_HOME` explicitly and preserve any
 existing local plugin changes before installation or update.
 
+To share one memory across every Hermes profile on a host, run `bigfeels-mem setup` (it prints the
+`hermes config set` commands; `--apply` runs them) and restart the gateways. Profiles stay separate by default.
+
 Setup has no required fields. The provider opens the profile-local bigfeels
 store at `$HERMES_HOME/bigfeels` in the primary Hermes process and defaults to
 the `owner` space.

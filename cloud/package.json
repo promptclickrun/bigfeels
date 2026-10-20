@@ -3,11 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "build": "python3 build.py",
-    "dev": "python3 build.py && uv run --locked pywrangler dev",
-    "deploy": "python3 build.py && uv run --locked pywrangler deploy",
-    "check": "python3 build.py && uv run --locked pywrangler deploy --dry-run"
+    "dev": "uv run --locked pywrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run",
+    "sync-engine": "python3 build.py"
   },
-  "devDependencies": {"wrangler": "4.151.1"},
-  "cloudflare": {"bindings": {"ADMIN_PASSWORD": {"description": "A unique random password of at least 32 characters. Keep it in your password manager."}}}
+  "devDependencies": {
+    "wrangler": "4.151.1"
+  },
+  "cloudflare": {
+    "bindings": {
+      "ADMIN_PASSWORD": {
+        "description": "Choose a unique random password of **at least 32 characters** (for example, run `openssl rand -hex 32`). Keep it in your password manager: you type it once, in the terminal, when you pair your first computer with `bigfeels-mem cloud connect`."
+      }
+    }
+  }
 }

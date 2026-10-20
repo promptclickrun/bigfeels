@@ -1,0 +1,173 @@
+"""Deterministic bounded context and replaceable vector scoring."""
+import json
+import math
+import re
+
+
+# Function words should not make unrelated natural questions look relevant. Keep
+# domain words and verbs such as "use" and "prefer": they can be meaningful in
+# short memory queries.
+_STOP_WORDS = frozenset({
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'being', 'but', 'by',
+    'can', 'could', 'did', 'do', 'does', 'for', 'from', 'had', 'has', 'have',
+    'he', 'her', 'hers', 'him', 'his', 'how', 'i', 'if', 'in', 'into', 'is',
+    'it', 'its', 'me', 'mine', 'my', 'of', 'on', 'or', 'our', 'ours', 'she',
+    'should', 'that', 'the', 'their', 'theirs', 'them', 'they', 'this', 'those',
+    'to', 'us', 'was', 'we', 'were', 'what', 'when', 'where', 'which', 'who',
+    'why', 'will', 'with', 'would', 'you', 'your', 'yours',
+})
+
+# Small concept families improve ordinary lexical fallback without requiring an
+# embedding provider. They are language-level vocabulary, not corpus tuning.
+_CONCEPTS = (
+    frozenset({'bicycle', 'bicycles', 'bike', 'bikes', 'cycle', 'cycles', 'cycling', 'cyclist'}),
+)
+_CONCEPT_BY_TERM = {term: family for family in _CONCEPTS for term in family}
+
+
+def _stem(term):
+    aliases = {'preferred': 'prefer', 'prefers': 'prefer', 'preferences': 'preference'}
+    if term in aliases:
+        return aliases[term]
+    if len(term) > 5 and term.endswith('ies'):
+        return term[:-3] + 'y'
+    if len(term) > 5 and term.endswith('ing'):
+        base = term[:-3]
+        return base[:-1] if len(base) > 2 and base[-1] == base[-2] else base
+    if len(term) > 4 and term.endswith('ed'):
+        return term[:-2]
+    if len(term) > 4 and term.endswith('s'):
+        return term[:-1]
+    return term
+
+
+def terms(query, *, expand=True):
+    """Return stable, informative lexical terms for a natural query."""
+    raw = re.findall(r'[^\W_]+(?:[\'-][^\W_]+)*', query.lower(), re.UNICODE)
+    result = []
+    for term in raw:
+        if term in _STOP_WORDS:
+            continue
+        for value in (term, _stem(term)):
+            if value and value not in result:
+                result.append(value)
+        if expand:
+            family = _CONCEPT_BY_TERM.get(term)
+            if family:
+                for value in sorted(family):
+                    if value not in result:
+                        result.append(value)
+        if len(result) >= 64:
+            break
+    return result[:64]
+
+
+# A memory's opening usually states its subject, the way a title does. Ranking
+# reads the first OPENING_CHARS characters (about 64 words) first. Matches
+# elsewhere in a long memory count at BODY_WEIGHT, so a late keyword is still
+# found without letting long text outrank focused text.
+OPENING_CHARS = 400
+BODY_WEIGHT = 0.25
+
+
+def match_groups(query):
+    """Return one FTS5 expression per informative query word, at most 64.
+
+    The recall index stems words, so a group also matches inflections. A
+    concept family forms one group: synonyms widen a match without making the
+    question look larger.
+    """
+    groups = []
+    for term in re.findall(r'[^\W_]+(?:[\'-][^\W_]+)*', query.lower(), re.UNICODE):
+        if term in _STOP_WORDS:
+            continue
+        words = sorted(_CONCEPT_BY_TERM.get(term, (term,)))
+        group = ' OR '.join('"' + word.replace('"', '""') + '"' for word in words)
+        if group not in groups:
+            groups.append(group)
+    return groups[:64]
+
+
+def coverage(matched, wanted):
+    # Favor records answering more of a natural question while still allowing
+    # a single distinctive noun to retrieve a concise fact.
+    return matched / wanted + min(matched, 4) / 10
+
+
+def lexical_relevance(opening, anywhere, wanted):
+    """Score a record from the query groups matched in its opening and anywhere."""
+    return max(coverage(opening, wanted), BODY_WEIGHT * coverage(anywhere, wanted))
+
+
+# With an embedding provider, the nearest SEMANTIC_CANDIDATES memories join the
+# keyword matches. Reciprocal-rank fusion combines the two rankings without a
+# model-specific similarity scale; RRF_K is the conventional constant.
+SEMANTIC_CANDIDATES = 50
+RRF_K = 60
+
+
+def fuse_rankings(*rankings):
+    """Score each ID by the sum of 1 / (RRF_K + position) across rankings."""
+    fused = {}
+    for ranking in rankings:
+        for position, item in enumerate(ranking, 1):
+            fused[item] = fused.get(item, 0.0) + 1 / (RRF_K + position)
+    return fused
+
+
+def normalized_claim(value):
+    return ' '.join(value.casefold().strip().rstrip('.!?').split())
+
+
+def claims_compatible(first, second):
+    """Only cosmetic differences establish agreement in a single keyed slot.
+
+    Lexical overlap is useful for relevance, not truth: changing one number,
+    owner, unit, qualifier, or word order can reverse a claim. Non-equivalence
+    means *potential* conflict requiring review, not proven contradiction.
+    """
+    return normalized_claim(first) == normalized_claim(second)
+
+
+def conflicting_claim_ids(records, targets):
+    """Find interval overlaps with a different claim in O(n log n), O(n) space.
+
+    Inputs belong to one authorized key. Sweep targets by start while visiting
+    records by end. The two furthest ends with distinct content suffice to
+    find an overlapping alternative, without materializing every pair.
+    """
+    infinity = '\uffff'
+    ordered = sorted(targets, key=lambda m: m['valid_from'])
+    cursor, furthest, conflicts = 0, {}, set()
+    for record in sorted(records, key=lambda m: m['valid_until'] or infinity):
+        end = record['valid_until'] or infinity
+        while cursor < len(ordered) and ordered[cursor]['valid_from'] < end:
+            target = ordered[cursor]
+            claim = normalized_claim(target['content'])
+            target_end = target['valid_until'] or infinity
+            furthest[claim] = max(furthest.get(claim, ''), target_end)
+            if len(furthest) > 2:
+                del furthest[min(furthest, key=lambda value: furthest[value])]
+            cursor += 1
+        claim = normalized_claim(record['content'])
+        if any(other != claim and end > record['valid_from']
+               for other, end in furthest.items()):
+            conflicts.add(record['id'])
+    return conflicts
+
+
+# math.sumprod (Python 3.12+) computes dot products in C.
+dot = getattr(math, 'sumprod', lambda a, b: sum(x * y for x, y in zip(a, b)))
+
+
+def cosine(a, b):
+    if not a or len(a) != len(b):
+        return 0.0
+    norm = math.sqrt(dot(a, a) * dot(b, b))
+    return dot(a, b) / norm if norm else 0.0
+
+
+def token_cost(record):
+    # UTF-8 byte count is a conservative tokenizer-independent upper bound for
+    # common byte/subword tokenizers, including metadata returned to the agent.
+    return len(json.dumps(record, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
