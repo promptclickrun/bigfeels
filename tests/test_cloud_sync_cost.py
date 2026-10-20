@@ -351,3 +351,34 @@ class RemoteSetupTests(unittest.TestCase):
             client.call('context', {'query': 'x', 'spaces': ['owner'], 'budget': 100})
             client.call('remember', {'space': 'owner', 'content': 'A save'})
             self.assertEqual([('/v1/context', cloud.RECALL_TIMEOUT_SECONDS), ('/v1/remember', 30)], seen)
+
+
+class BackupTests(unittest.TestCase):
+    def test_backup_of_a_cloud_only_vault_is_a_restorable_store_without_deleted_memories(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            fake = FakeCloud(root)
+            self.addCleanup(fake.close)
+            seed = Store(root / 'seed' / 'memory.sqlite')
+            keep = [seed.dispatch(P, 'remember', {'space': 'owner', 'content': f'Backed up fact {i}'}) for i in range(230)]
+            doomed = seed.dispatch(P, 'remember', {'space': 'owner', 'content': 'Deleted before the backup'})
+            connect(root / 'seed', fake.url, PASSWORD, allow_local=True)
+            sync_once(root / 'seed')
+            _, admin = cloud.configured_client(root / 'seed')
+            preview = admin.request('/v1/forget_preview', {'id': doomed['id']})
+            admin.request('/v1/forget', {'id': doomed['id'], 'plan_token': preview['plan_token']})
+            code = admin.request('/v1/devices/invite', {})['code']
+            agent = root / 'agent'
+            connect(agent, fake.url, code, invite=True, allow_local=True, remote=True)
+            result = cloud.backup(agent, root / 'snapshot')
+            self.assertEqual(230, result['memories'])
+            self.assertGreater(result['pages'], 1, 'a vault larger than one page is paged, not exported at once')
+            snapshot = Store(root / 'snapshot' / 'memory.sqlite')
+            self.assertEqual(230, snapshot.dispatch(P, 'status', {})['memories'])
+            self.assertIn(keep[7]['id'], str(snapshot.dispatch(P, 'search', {'query': 'Backed up fact 7', 'budget': 4000})))
+            self.assertEqual(0, len(snapshot.dispatch(P, 'search', {'query': 'Deleted before', 'budget': 4000})['memories']))
+            with snapshot.connection() as c:
+                self.assertEqual(0, c.execute('SELECT COUNT(*) FROM sync_log').fetchone()[0])
+            with self.assertRaises(ValueError):
+                cloud.backup(agent, root / 'snapshot')
+            self.assertFalse((agent / 'memory.sqlite').exists(), 'a backup must not turn a cloud-only directory into a local one')

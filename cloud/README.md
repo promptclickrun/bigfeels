@@ -225,7 +225,7 @@ npx wrangler deploy --dry-run
 npx wrangler deploy
 ```
 
-Use `bigfeels-mem export --output /private/backup.json --space owner` for a portable local backup. Restore into a **new empty data directory** with `bigfeels-mem --data-dir /private/recovery restore /private/backup.json`, inspect it, and only then connect that store. Exports are plaintext and contain tombstones, which must survive recovery. Never edit out deletion markers to make an import succeed.
+Use `bigfeels-mem cloud backup /private/snapshot` to download the whole vault into a new, restorable local store. It pages through the same endpoint sync uses, so it works on a vault of any size, for cloud-only and syncing setups alike, and it brings tombstones so a restore cannot bring back deleted memories. (`export` builds the vault in one request and can hit the Worker's CPU limit on a large vault.) Use `bigfeels-mem export --output /private/backup.json --space owner` for a portable local backup. Restore into a **new empty data directory** with `bigfeels-mem --data-dir /private/recovery restore /private/backup.json`, inspect it, and only then connect that store. Exports are plaintext and contain tombstones, which must survive recovery. Never edit out deletion markers to make an import succeed.
 
 Cloudflare provides [point-in-time recovery for durable SQLite](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/). That platform history can retain deleted data for up to 30 days. This release does not create nightly R2 copies. Each synced local store is an additional copy, not protection against a deletion that correctly propagates everywhere.
 

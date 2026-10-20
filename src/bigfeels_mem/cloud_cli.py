@@ -22,6 +22,8 @@ def add_commands(commands):
                        help='Cloud-only: keep no local copy and answer every call from the vault (no sync)')
     sub.add_parser('status')
     sub.add_parser('sync', help='Synchronize once')
+    backup = sub.add_parser('backup', help='Download the whole vault into a new local store (a restorable snapshot)')
+    backup.add_argument('target', help='A new directory; it must not already hold a store')
     sub.add_parser('resync', help='Replay every local row to the cloud and read it again (after a cloud restore)')
     sub.add_parser('run', help='Keep syncing in the foreground; suitable for a user service')
     invite = sub.add_parser('invite', help='Create a one-time, ten-minute invitation')
@@ -65,6 +67,8 @@ def run(args, data_dir, stdout, stderr):
             return
         # Pairing is persisted even if bootstrap is offline; a later sync resumes.
         result = cloud.sync_once(data_dir)
+    elif args.cloud_command == 'backup':
+        result = cloud.backup(data_dir, args.target)
     elif args.cloud_command == 'resync':
         config, _ = cloud.configured_client(data_dir)
         if config.get('mode') == 'remote':

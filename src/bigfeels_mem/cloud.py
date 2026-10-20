@@ -227,6 +227,39 @@ def configured_client(data_dir):
     return config, CloudClient(config['url'], config['token'], allow_local=config.get('allow_local', False))
 
 
+def backup(data_dir, target):
+    """Download the whole vault into a new local store at `target`, a restorable snapshot.
+
+    Works for cloud-only and syncing setups alike. It reads the same paged, cursor-based endpoint sync
+    uses, so it stays within the Worker's CPU limit on a vault of any size (`/v1/export` builds the
+    whole vault in one request and cannot). The result is an ordinary bigfeels data directory: open it
+    with `--data-dir`, or connect it to a fresh vault to restore. Tombstones come along, so a restore
+    never resurrects deleted memories. Nothing is uploaded and the vault is not changed.
+    """
+    config, client = configured_client(data_dir)
+    target = Path(target).expanduser()
+    if (target / 'memory.sqlite').exists():
+        raise ValueError('Backup target already holds a store; choose a new directory')
+    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    store = Store(target / 'memory.sqlite')
+    with store.connection(True) as c:
+        sync.install(c)
+    cursor, pages, rows = 0, 0, 0
+    while True:
+        page = client.request('/v1/sync/pull?since=' + str(cursor))
+        with store.connection(True) as c:
+            sync.apply(store, c, page, config['spaces'], quiet=True)
+        pages, rows, cursor = pages + 1, rows + len(page['changes']), page['cursor']
+        if not page['has_more']:
+            break
+    with store.connection(True) as c:
+        # A snapshot is not a sync client: drop the journal so it can be paired later from scratch.
+        c.execute('DELETE FROM sync_log')
+    with store.connection() as c:
+        counts = {t: c.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('memories', 'evidence', 'tombstones')}
+    return {'status': 'backed_up', 'path': str(target), 'pages': pages, 'rows': rows, **counts}
+
+
 def resync(store, config):
     """Forget what is known about the cloud and replay everything: the safe answer to a restored backup.
 
