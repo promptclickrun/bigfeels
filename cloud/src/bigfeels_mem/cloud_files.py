@@ -16,6 +16,7 @@ Only the body is editable. Keep `id` in the frontmatter so a stale copy is refus
 """
 import json
 import re
+import time
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from urllib.parse import quote, unquote
@@ -24,6 +25,7 @@ from .store import MemoryError, Principal
 
 KINDS = ('fact', 'preference', 'decision', 'episode', 'procedure', 'task')
 SHOWN = ('active', 'disputed')
+LISTING_SECONDS = 5
 MAX_FILE_BYTES = 64_000
 DELETES_PER_MINUTE = 20
 MARKDOWN = re.compile(r'\.md$', re.I)
@@ -91,6 +93,7 @@ def parse(text):
 class Files:
     def __init__(self, store, service):
         self.store, self.service = store, service
+        self.cache = {}
 
     # -- reading the vault as files -------------------------------------------------------------
 
@@ -115,6 +118,17 @@ class Files:
             first = rows.get(root)
             memory['lineage'] = root
             files[root] = (memory, first or memory)
+        return files
+
+    def _listing(self, c, space):
+        """`_lineages` for one space, reused for a few seconds. A sync plugin on depth 1 lists one folder at a
+        time (thousands of requests in a row) and each would otherwise rescan the whole space. Our own writes
+        clear it; an agent's save shows up within the window."""
+        cached = self.cache.get(space)
+        if cached and time.time() - cached[0] < LISTING_SECONDS:
+            return cached[1]
+        files = self._lineages(c, [space])
+        self.cache[space] = (time.time(), files)
         return files
 
     def _find(self, c, spaces, stem):
@@ -160,6 +174,11 @@ class Files:
         parts = [unquote(p) for p in path.removeprefix('/dav').split('/') if p]
         if any(p in ('.', '..') or '\\' in p or '\x00' in p for p in parts):
             raise MemoryError('Invalid path', 400)
+        # Sync plugins keep a vault inside a folder named after it (Remotely Save: /dav/<vault name>/).
+        # A first folder that is not a space is that wrapper: the tree below it is the same one.
+        self.base = '/dav'
+        if parts and parts[0] not in spaces:
+            self.base += '/' + quote(parts.pop(0), safe='')
         method = method.upper()
         if method == 'OPTIONS':
             return 200, '', {'DAV': '1', 'Allow': 'OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL',
@@ -169,7 +188,8 @@ class Files:
         if method in ('GET', 'HEAD'):
             return self.get(parts, spaces, method == 'HEAD')
         if method == 'MKCOL':
-            return (201 if parts and parts[0] in spaces else 403), '', {}
+            # Folders are implied by the memories inside them, so making one only has to say yes.
+            return (201 if not parts or parts[0] in spaces else 403), '', {}
         if method == 'PUT':
             return self.put(parts, body, device, spaces)
         if method == 'DELETE':
@@ -189,7 +209,7 @@ class Files:
     def propfind(self, parts, depth, spaces, origin):
         if parts and parts[0] not in spaces:
             return 404, '', {}
-        base = '/dav'
+        base = self.base
         entries = []
         with self.store.connection() as c:
             if not parts:
@@ -197,7 +217,7 @@ class Files:
                 if depth != '0':
                     entries.extend(self._entry(f'{base}/{s}/', True) for s in spaces)
                 return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(entries) + '</D:multistatus>', XML
-            files = self._lineages(c, [parts[0]])
+            files = self._listing(c, parts[0])
         by_topic = {}
         for memory, first in files.values():
             by_topic.setdefault(topic_of(memory['key'] or first['key']), []).append((memory, first))
@@ -212,14 +232,13 @@ class Files:
             text = render(memory).encode()
             entries.append(self._entry(f'{base}/{parts[0]}/{topic_of(memory["key"] or first["key"])}/{file_name(first)}',
                                        False, len(text), http_date(memory['recorded_at']), memory['id'][4:16] + '-' + str(memory['revision'])))
-        elif wanted_topic is not None and wanted_topic not in by_topic:
-            return 404, '', {}
         else:
-            self_href = f'{base}/{"/".join(parts)}/'
+            self_href = f'{base}/{"/".join(parts)}/'.replace('//', '/')
             entries.append(self._entry(self_href, True))
             if depth != '0':
                 topics = [wanted_topic] if wanted_topic else sorted(by_topic)
                 for topic in topics:
+                    by_topic.setdefault(topic, [])
                     if not wanted_topic:
                         entries.append(self._entry(f'{base}/{parts[0]}/{topic}/', True))
                     if wanted_topic or depth == 'infinity':
@@ -269,6 +288,7 @@ class Files:
         if not text.strip():
             raise MemoryError('A memory cannot be empty; delete the file to forget it', 400)
         principal = Principal(device['id'], tuple(device['spaces']))
+        self.cache.clear()
         with self.store.connection() as c:
             found = self._located(c, parts, spaces)
         if found:
@@ -298,6 +318,7 @@ class Files:
             found = self._located(c, parts, spaces)
         if not found:
             return 404, '', {}
+        self.cache.clear()
         # A sync plugin that sees a folder vanish locally deletes remotely too. Slow that down.
         self.service.limit('dav-delete:' + device['id'], DELETES_PER_MINUTE)
         principal = Principal(device['id'], tuple(device['spaces']))

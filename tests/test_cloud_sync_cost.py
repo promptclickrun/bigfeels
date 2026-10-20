@@ -474,7 +474,11 @@ class MarkdownFilesTests(unittest.TestCase):
         import base64
         basic = {'Authorization': 'Basic ' + base64.b64encode(b'bigfeels:' + self.token.encode()).decode()}
         self.assertEqual(207, self.files.handle('PROPFIND', '/dav/', basic, b'', 'https://x')[0])
-        self.assertEqual(404, self.files.handle('PROPFIND', '/dav/private/', basic, b'', 'https://x')[0])
+        # An unknown first folder is a sync plugin's vault wrapper: it lists only the spaces this login may see.
+        status, xml, _ = self.files.handle('PROPFIND', '/dav/private/', {**basic, 'Depth': '1'}, b'', 'https://x')
+        self.assertEqual(207, status)
+        self.assertNotIn('/dav/private/private/', xml)
+        self.assertEqual(404, self.files.handle('PROPFIND', '/dav/private/private/', basic, b'', 'https://x')[0])
         with self.assertRaises(StoreError):
             self.call('PUT', '/dav/private/x.md', b'nope')
 
@@ -484,3 +488,33 @@ class MarkdownFilesTests(unittest.TestCase):
                 self.call('PUT', path, b'text')
         with self.assertRaises(StoreError):
             self.call('PUT', '/dav/owner/t/big.md', b'x' * 70_000)
+
+
+class SyncPluginRequestTests(unittest.TestCase):
+    """The requests Remotely Save sends: a vault-named wrapper folder, folder-by-folder listing, MKCOL."""
+
+    def test_vault_named_wrapper_folder_serves_the_same_tree(self):
+        from bigfeels_mem.cloud_files import Files
+        with tempfile.TemporaryDirectory() as t:
+            store = Store(Path(t) / 'v.sqlite')
+            service = CloudService(store, PASSWORD, ['owner'])
+            with store.connection(True) as c:
+                token = service.mint(c, 'dav', ['owner'])['token']
+            files = Files(store, service)
+            store.dispatch(P, 'remember', {'space': 'owner', 'content': 'Likes tea', 'key': 'drinks.tea'})
+            auth = {'Authorization': 'Bearer ' + token}
+            call = lambda m, path, h=None, body=b'': files.handle(m, path, {**auth, **(h or {})}, body, 'https://x')
+            self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/', {'Depth': '0'})[0])
+            self.assertEqual(201, call('MKCOL', '/dav/bigfeels/')[0])
+            status, xml, _ = call('PROPFIND', '/dav/bigfeels/', {'Depth': '1'})
+            self.assertIn('/dav/bigfeels/owner/', xml)
+            status, xml, _ = call('PROPFIND', '/dav/bigfeels/owner/', {'Depth': '1'})
+            self.assertIn('/dav/bigfeels/owner/drinks/', xml)
+            status, xml, _ = call('PROPFIND', '/dav/bigfeels/owner/drinks/', {'Depth': '1'})
+            name = re.search(r'<D:href>([^<]+\.md)</D:href>', xml).group(1)
+            self.assertTrue(name.startswith('/dav/bigfeels/owner/drinks/drinks-tea--'))
+            self.assertIn('Likes tea', call('GET', name)[1])
+            self.assertEqual(201, call('MKCOL', '/dav/bigfeels/owner/empty-topic/')[0])
+            self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/owner/empty-topic/', {'Depth': '1'})[0])
+            self.assertEqual(201, call('PUT', '/dav/bigfeels/owner/notes/hello.md', body=b'Hello from the wrapper')[0])
+            self.assertIn('Hello from the wrapper', store.dispatch(P, 'search', {'query': 'wrapper', 'budget': 2000})['memories'][0]['content'])
