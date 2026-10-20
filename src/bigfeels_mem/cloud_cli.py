@@ -33,6 +33,17 @@ def add_commands(commands):
     push = sub.add_parser('wiki-push', help='Upload a local markdown wiki folder into the shared wiki (new pages only, unless --replace)')
     push.add_argument('folder')
     push.add_argument('--replace', action='store_true', help='Also overwrite pages that already exist (history keeps the old text)')
+    page = sub.add_parser('page', help='Read, write, list, search or delete shared wiki pages (for scripts and scheduled agents)')
+    pages_sub = page.add_subparsers(dest='page_command', required=True)
+    for name in ('read', 'history', 'delete'):
+        pages_sub.add_parser(name).add_argument('path')
+    pages_sub.add_parser('list').add_argument('prefix', nargs='?', default='')
+    pages_sub.add_parser('search').add_argument('query')
+    write = pages_sub.add_parser('write', help='Write a page from a file (or - for stdin)')
+    write.add_argument('path')
+    write.add_argument('file')
+    write.add_argument('--base-revision', type=int, required=True, help='The revision you read; 0 for a new page')
+    write.add_argument('--agent', default=None, help='Shown in page history')
     sub.add_parser('devices', help='List registered devices (administrator only)')
     revoke = sub.add_parser('revoke', help='Revoke a device')
     revoke.add_argument('device_id')
@@ -113,6 +124,21 @@ def run(args, data_dir, stdout, stderr):
             result = {'webdav_url': config['url'].rstrip('/') + '/dav/', 'username': 'bigfeels', 'password': paired['token'],
                       'device_id': paired['device_id'],
                       'next': 'In Obsidian, install Remotely Save, choose WebDAV, and enter these. Revoke with: cloud revoke ' + paired['device_id']}
+        elif args.cloud_command == 'page':
+            command = 'wiki_' + args.page_command
+            if args.page_command in ('read', 'history', 'delete'):
+                payload = {'path': args.path}
+            elif args.page_command == 'list':
+                payload = {'prefix': args.prefix}
+            elif args.page_command == 'search':
+                payload = {'query': args.query}
+            else:
+                import sys
+                text = sys.stdin.read() if args.file == '-' else Path(args.file).read_text('utf-8')
+                payload = {'path': args.path, 'content': text, 'base_revision': args.base_revision}
+            if args.page_command in ('write', 'delete') and getattr(args, 'agent', None):
+                payload['agent'] = args.agent
+            result = client.request('/v1/' + command, payload)
         elif args.cloud_command == 'wiki-push':
             result = cloud.push_wiki(data_dir, args.folder, replace=args.replace)
         elif args.cloud_command == 'devices':

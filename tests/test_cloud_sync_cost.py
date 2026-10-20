@@ -534,3 +534,35 @@ class WikiFilesTests(unittest.TestCase):
         hrefs = set(_hrefs(call('PROPFIND', '/dav/bigfeels/', depth='infinity')[1]))
         self.assertTrue({'/dav/bigfeels/owner/', '/dav/bigfeels/family/', '/dav/bigfeels/family/groceries.md'} <= hrefs)
         self.assertEqual(b'Milk', call('GET', '/dav/bigfeels/family/groceries.md')[1])
+
+
+class PageCommandTests(unittest.TestCase):
+    """`cloud page` lets a scheduled agent edit the wiki from a terminal, with the same revision rule."""
+
+    def test_write_read_list_search_and_stale_revision(self):
+        import io
+        import json
+        from bigfeels_mem.cli import main
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            fake = FakeCloud(root)
+            self.addCleanup(fake.close)
+            directory = root / 'remote'
+            connect(directory, fake.url, PASSWORD, allow_local=True, remote=True)
+            draft = root / 'page.md'
+            draft.write_text('# Tea\nGreen tea in the morning.')
+
+            def run(*argv):
+                out = io.StringIO()
+                main(['--data-dir', str(directory), 'cloud', 'page', *argv], stdout=out, stderr=io.StringIO())
+                return json.loads(out.getvalue())
+            self.assertEqual(1, run('write', 'concepts/tea.md', str(draft), '--base-revision', '0', '--agent', 'Dreaming')['revision'])
+            page = run('read', 'concepts/tea.md')
+            self.assertIn('Green tea', page['content'])
+            self.assertTrue(page['updated_by'].endswith('/Dreaming'))
+            self.assertEqual(['concepts/tea.md'], [p['path'] for p in run('list', 'concepts')['pages']])
+            self.assertEqual('concepts/tea.md', run('search', 'green tea')['pages'][0]['path'])
+            errors = io.StringIO()
+            code = main(['--data-dir', str(directory), 'cloud', 'page', 'write', 'concepts/tea.md', str(draft), '--base-revision', '0'],
+                        stdout=io.StringIO(), stderr=errors)
+            self.assertEqual((1, 409), (code, json.loads(errors.getvalue())['status']))
