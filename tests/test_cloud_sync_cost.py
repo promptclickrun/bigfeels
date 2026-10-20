@@ -518,3 +518,21 @@ class SyncPluginRequestTests(unittest.TestCase):
             self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/owner/empty-topic/', {'Depth': '1'})[0])
             self.assertEqual(201, call('PUT', '/dav/bigfeels/owner/notes/hello.md', body=b'Hello from the wrapper')[0])
             self.assertIn('Hello from the wrapper', store.dispatch(P, 'search', {'query': 'wrapper', 'budget': 2000})['memories'][0]['content'])
+
+    def test_depth_infinity_from_the_root_lists_the_whole_tree_in_one_request(self):
+        from bigfeels_mem.cloud_files import Files
+        with tempfile.TemporaryDirectory() as t:
+            store = Store(Path(t) / 'v.sqlite')
+            service = CloudService(store, PASSWORD, ['owner'])
+            with store.connection(True) as c:
+                token = service.mint(c, 'dav', ['owner'])['token']
+            for i in range(3):
+                store.dispatch(P, 'remember', {'space': 'owner', 'content': f'Topic note {i}', 'key': f'topic{i}.note'})
+            files = Files(store, service)
+            ask = lambda path, depth: files.handle('PROPFIND', path, {'Authorization': 'Bearer ' + token, 'Depth': depth}, b'', 'https://x')[1]
+            whole = ask('/dav/bigfeels/', 'infinity')
+            self.assertEqual(3, whole.count('.md</D:href>'))
+            self.assertEqual(3, ask('/dav/bigfeels/owner/', 'infinity').count('.md</D:href>'))
+            self.assertEqual(0, ask('/dav/bigfeels/owner/', '1').count('.md</D:href>'))
+            self.assertEqual(3, ask('/dav/bigfeels/owner/', '1').count('/dav/bigfeels/owner/topic'))
+            self.assertEqual(1, ask('/dav/bigfeels/owner/', '0').count('<D:response>'))

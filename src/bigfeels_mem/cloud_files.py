@@ -216,6 +216,10 @@ class Files:
                 entries.append(self._entry(base + '/', True))
                 if depth != '0':
                     entries.extend(self._entry(f'{base}/{s}/', True) for s in spaces)
+                if depth == 'infinity':
+                    # One request for the whole tree: far faster for a sync plugin than a request per folder.
+                    for space in spaces:
+                        entries.extend(self._tree(self._listing(c, space), space, base)[1:])
                 return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(entries) + '</D:multistatus>', XML
             files = self._listing(c, parts[0])
         by_topic = {}
@@ -229,24 +233,32 @@ class Files:
             if not found:
                 return 404, '', {}
             memory, first = found
-            text = render(memory).encode()
-            entries.append(self._entry(f'{base}/{parts[0]}/{topic_of(memory["key"] or first["key"])}/{file_name(first)}',
-                                       False, len(text), http_date(memory['recorded_at']), memory['id'][4:16] + '-' + str(memory['revision'])))
+            entries.append(self._file_entry(base, parts[0], memory, first))
+        elif len(parts) == 1:
+            tree = self._tree(files, parts[0], base)
+            entries.extend(tree if depth == 'infinity' else [e for e in tree if '.md</D:href>' not in e] if depth != '0' else tree[:1])
         else:
-            self_href = f'{base}/{"/".join(parts)}/'.replace('//', '/')
-            entries.append(self._entry(self_href, True))
+            entries.append(self._entry(f'{base}/{parts[0]}/{wanted_topic}/', True))
             if depth != '0':
-                topics = [wanted_topic] if wanted_topic else sorted(by_topic)
-                for topic in topics:
-                    by_topic.setdefault(topic, [])
-                    if not wanted_topic:
-                        entries.append(self._entry(f'{base}/{parts[0]}/{topic}/', True))
-                    if wanted_topic or depth == 'infinity':
-                        for memory, first in by_topic[topic]:
-                            text = render(memory).encode()
-                            entries.append(self._entry(f'{base}/{parts[0]}/{topic}/{file_name(first)}', False, len(text),
-                                           http_date(memory['recorded_at']), memory['id'][4:16] + '-' + str(memory['revision'])))
+                for memory, first in by_topic.get(wanted_topic, []):
+                    entries.append(self._file_entry(base, parts[0], memory, first))
         return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(entries) + '</D:multistatus>', XML
+
+    def _file_entry(self, base, space, memory, first):
+        text = render(memory).encode()
+        return self._entry(f'{base}/{space}/{topic_of(memory["key"] or first["key"])}/{file_name(first)}', False,
+                           len(text), http_date(memory['recorded_at']), memory['id'][4:16] + '-' + str(memory['revision']))
+
+    def _tree(self, files, space, base):
+        """The space folder, its topic folders, and every file, as PROPFIND entries (the space itself first)."""
+        by_topic = {}
+        for memory, first in files.values():
+            by_topic.setdefault(topic_of(memory['key'] or first['key']), []).append((memory, first))
+        entries = [self._entry(f'{base}/{space}/', True)]
+        for topic in sorted(by_topic):
+            entries.append(self._entry(f'{base}/{space}/{topic}/', True))
+            entries.extend(self._file_entry(base, space, m, f) for m, f in by_topic[topic])
+        return entries
 
     def _file_for(self, files, name):
         match = FILE_ID.search(name)
