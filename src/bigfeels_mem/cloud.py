@@ -227,6 +227,18 @@ def configured_client(data_dir):
     return config, CloudClient(config['url'], config['token'], allow_local=config.get('allow_local', False))
 
 
+def _pull_with_retry(client, cursor, attempts=6):
+    """One pull page, retried with backoff: a snapshot is one long run and a single network blip must not end it."""
+    for attempt in range(attempts):
+        try:
+            return client.request('/v1/sync/pull?since=' + str(cursor))
+        except ClientError as error:
+            transient = error.status in (429, 500, 502, 503, 504)
+            if not transient or attempt == attempts - 1:
+                raise
+            time.sleep(min(2 ** attempt, 30))
+
+
 def backup(data_dir, target):
     """Download the whole vault into a new local store at `target`, a restorable snapshot.
 
@@ -246,7 +258,7 @@ def backup(data_dir, target):
         sync.install(c)
     cursor, pages, rows = 0, 0, 0
     while True:
-        page = client.request('/v1/sync/pull?since=' + str(cursor))
+        page = _pull_with_retry(client, cursor)
         with store.connection(True) as c:
             sync.apply(store, c, page, config['spaces'], quiet=True)
         pages, rows, cursor = pages + 1, rows + len(page['changes']), page['cursor']

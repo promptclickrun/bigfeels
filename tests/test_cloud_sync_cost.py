@@ -1,6 +1,7 @@
 """Sync cost and recovery behavior, through the real client against an in-process cloud."""
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from bigfeels_mem import cloud, sync
@@ -382,3 +383,25 @@ class BackupTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cloud.backup(agent, root / 'snapshot')
             self.assertFalse((agent / 'memory.sqlite').exists(), 'a backup must not turn a cloud-only directory into a local one')
+
+
+    def test_backup_retries_a_transient_failure_instead_of_dying(self):
+        calls = {'n': 0}
+
+        class Flaky:
+            def request(self, path, payload=None, **kw):
+                calls['n'] += 1
+                if calls['n'] < 3:
+                    raise cloud.ClientError('Cloud unavailable or response invalid', 503)
+                return {'ok': True}
+
+        with unittest.mock.patch.object(cloud.time, 'sleep'):
+            self.assertEqual({'ok': True}, cloud._pull_with_retry(Flaky(), 0))
+        self.assertEqual(3, calls['n'])
+
+        class Denied:
+            def request(self, path, payload=None, **kw):
+                raise cloud.ClientError('Cloud request failed (HTTP 401)', 401)
+
+        with self.assertRaises(cloud.ClientError):
+            cloud._pull_with_retry(Denied(), 0)
