@@ -105,6 +105,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(pulled['vault_id'].startswith('vault_'))
         self.assertGreaterEqual(pulled['head'], pulled['cursor'])
         self.assertTrue(remote.request('/v1/info')['configured'])
+        # The journal head must never go backwards, even when forgetting removes the newest entry:
+        # a falling head would look like a restored cloud and make every device replay its rows.
+        fresh = remote.request('/v1/remember', {'space': 'owner', 'content': 'Head probe ' + uuid.uuid4().hex})
+        before = remote.request('/v1/info')['head']
+        preview = remote.request('/v1/forget_preview', {'id': fresh['id']})
+        remote.request('/v1/forget', {'id': fresh['id'], 'plan_token': preview['plan_token']})
+        self.assertGreaterEqual(remote.request('/v1/info')['head'], before)
         # A gzip request body is accepted, and an oversized one is refused before it is parsed.
         body = gzip.compress(json.dumps({'protocol': 1, 'changes': []}).encode())
         request = urllib.request.Request(url + '/v1/sync/push', data=body, method='POST', headers={
