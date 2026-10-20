@@ -8,6 +8,7 @@ from workers import WorkerEntrypoint, DurableObject, Response
 from database import CloudStore
 from bigfeels_mem.cloud_service import CloudService
 from bigfeels_mem.cloud_oauth import OAuth
+from bigfeels_mem.cloud_files import Files
 from bigfeels_mem.store import MemoryError
 from bigfeels_mem.sync import MAX_BYTES
 
@@ -62,6 +63,7 @@ class MemoryVault(DurableObject):
         self.store = CloudStore(self.ctx.storage)
         spaces = [s.strip() for s in getattr(self.env, 'SYNC_SPACES', 'owner').split(',') if s.strip()]
         self.service = CloudService(self.store, getattr(self.env, 'ADMIN_PASSWORD', ''), spaces)
+        self.files = Files(self.store, self.service)
 
     async def fetch(self, request):
         p = urlsplit(request.url)
@@ -71,10 +73,15 @@ class MemoryVault(DurableObject):
             if p.scheme != 'https' and p.hostname not in ('127.0.0.1', 'localhost', '::1'):
                 raise MemoryError('HTTPS is required', 426)
             # Rate accounting commits separately, including rejected attempts.
-            maximum = 20 if p.path.startswith('/oauth/') or p.path in ('/v1/devices/connect', '/v1/devices/join') else 600
+            on_files = p.path == '/dav' or p.path.startswith('/dav/')
+            # A first sync of the markdown view fetches every file once, so that route gets a wider window.
+            maximum = 20 if p.path.startswith('/oauth/') or p.path in ('/v1/devices/connect', '/v1/devices/join') else 6000 if on_files else 600
             self.ctx.storage.transactionSync(lambda: self.service.limit((request.headers.get('CF-Connecting-IP') or 'local') + ':' + str(maximum), maximum))
             supplied_origin = request.headers.get('Origin')
             allowed = [origin] + [s.strip() for s in getattr(self.env, 'ALLOWED_ORIGINS', '').split(',') if s.strip()]
+            if on_files:
+                # Obsidian sends these origins; any other browser page is refused (cached Basic credentials).
+                allowed += ['app://obsidian.md', 'capacitor://localhost', 'http://localhost']
             if supplied_origin and supplied_origin not in allowed:
                 raise MemoryError('Origin is not allowed', 403)
             if supplied_origin:
@@ -83,6 +90,18 @@ class MemoryVault(DurableObject):
             protocol = request.headers.get('MCP-Protocol-Version')
             if p.path == '/mcp' and protocol and protocol not in ('2025-03-26', '2025-06-18'):
                 raise MemoryError('Unsupported MCP protocol version')
+            if on_files:
+                # The SDK's `request.method` is an enum of standard verbs and raises on PROPFIND or MKCOL.
+                verb = str(request.js_object.method).upper()
+                raw = bytearray()
+                if verb == 'PUT':
+                    async for chunk in request.body:
+                        raw.extend(chunk)
+                        if len(raw) > 70_000:
+                            raise MemoryError('File is too large for one memory', 413)
+                status, body, headers = self.ctx.storage.transactionSync(
+                    lambda: self.files.handle(verb, p.path, request.headers, bytes(raw), origin))
+                return reply(status, body, {**headers, **cors})
             if request.method == 'OPTIONS':
                 return reply(204, '', {'Access-Control-Allow-Origin': supplied_origin or origin,
                     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -160,7 +179,9 @@ class MemoryVault(DurableObject):
             if e.status == 429:
                 headers['Retry-After'] = '60'
             return reply(e.status, {'error': str(e)}, {**headers, **cors})
-        except (ValueError, TypeError, KeyError, UnicodeError):
+        except (ValueError, TypeError, KeyError, UnicodeError) as error:
+            frames = traceback.extract_tb(error.__traceback__)[-3:]
+            print('bad_request', type(error).__name__, ' < '.join(f'{f.name}:{f.lineno}' for f in reversed(frames)))
             return reply(400, {'error': 'Invalid request'}, cors)
         except Exception as error:
             # Log where it failed, never what it held: exception text can carry remembered content.

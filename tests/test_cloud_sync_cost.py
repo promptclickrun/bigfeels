@@ -1,9 +1,12 @@
 """Sync cost and recovery behavior, through the real client against an in-process cloud."""
+import re
 import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
 
+from bigfeels_mem.cloud_service import CloudService
+from bigfeels_mem.store import MemoryError as StoreError
 from bigfeels_mem import cloud, sync
 from bigfeels_mem.cloud import BackgroundSync, connect, resync, sync_once
 from bigfeels_mem.store import Principal, Store
@@ -405,3 +408,79 @@ class BackupTests(unittest.TestCase):
 
         with self.assertRaises(cloud.ClientError):
             cloud._pull_with_retry(Denied(), 0)
+
+
+class MarkdownFilesTests(unittest.TestCase):
+    """The vault as markdown files over WebDAV: reading, editing, creating and deleting."""
+
+    def setUp(self):
+        from bigfeels_mem.cloud_files import Files
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.store = Store(Path(self.dir.name) / 'v.sqlite')
+        self.service = CloudService(self.store, PASSWORD, ['owner'])
+        with self.store.connection(True) as c:
+            self.token = self.service.mint(c, 'dav', ['owner'])['token']
+        self.files = Files(self.store, self.service)
+        self.auth = {'Authorization': 'Bearer ' + self.token}
+
+    def call(self, method, path, body=b'', headers=None):
+        return self.files.handle(method, path, {**self.auth, **(headers or {})}, body, 'https://x')
+
+    def names(self):
+        status, xml, _ = self.call('PROPFIND', '/dav/owner/', headers={'Depth': 'infinity'})
+        self.assertEqual(207, status)
+        return re.findall(r'<D:href>([^<]+\.md)</D:href>', xml)
+
+    def test_a_memory_is_a_file_and_editing_it_makes_a_correction_not_a_second_file(self):
+        saved = self.store.dispatch(P, 'remember', {'space': 'owner', 'content': 'Prefers dark mode', 'key': 'ui.theme'})
+        paths = self.names()
+        self.assertEqual(1, len(paths))
+        self.assertTrue(paths[0].startswith('/dav/owner/ui/ui-theme--'))
+        status, text, _ = self.call('GET', paths[0])
+        self.assertEqual(200, status)
+        self.assertIn('Prefers dark mode', text)
+        status, _, _ = self.call('PUT', paths[0], text.replace('Prefers dark mode', 'Prefers light mode').encode())
+        self.assertEqual(204, status)
+        self.assertEqual(paths, self.names(), 'an edit keeps the file name')
+        self.assertIn('light mode', self.call('GET', paths[0])[1])
+        old = self.store.dispatch(P, 'inspect', {'id': saved['id']})
+        self.assertEqual('superseded', old['status'])
+
+    def test_a_stale_copy_does_not_overwrite_a_newer_change(self):
+        self.store.dispatch(P, 'remember', {'space': 'owner', 'content': 'v1', 'key': 'k.stale'})
+        path = self.names()[0]
+        stale = self.call('GET', path)[1]
+        self.call('PUT', path, stale.replace('v1', 'v2').encode())
+        with self.assertRaises(StoreError) as raised:
+            self.call('PUT', path, stale.replace('v1', 'from the old copy').encode())
+        self.assertEqual(409, raised.exception.status)
+        self.assertIn('v2', self.call('GET', path)[1])
+
+    def test_new_file_becomes_a_memory_and_delete_forgets_it(self):
+        status, _, _ = self.call('PUT', '/dav/owner/garden/tomatoes.md', b'---\nkind: "preference"\n---\nGrows tomatoes in the back bed')
+        self.assertEqual(201, status)
+        found = self.store.dispatch(P, 'search', {'query': 'tomatoes', 'budget': 2000})['memories']
+        self.assertEqual(('preference', 'garden.tomatoes'), (found[0]['kind'], found[0]['key']))
+        path = self.names()[0]
+        self.assertEqual(204, self.call('DELETE', path)[0])
+        self.assertEqual([], self.names())
+        self.assertEqual(0, len(self.store.dispatch(P, 'search', {'query': 'tomatoes', 'budget': 2000})['memories']))
+
+    def test_login_is_required_and_other_spaces_stay_hidden(self):
+        status, _, headers = self.files.handle('PROPFIND', '/dav/', {}, b'', 'https://x')
+        self.assertEqual(401, status)
+        self.assertIn('Basic', headers['WWW-Authenticate'])
+        import base64
+        basic = {'Authorization': 'Basic ' + base64.b64encode(b'bigfeels:' + self.token.encode()).decode()}
+        self.assertEqual(207, self.files.handle('PROPFIND', '/dav/', basic, b'', 'https://x')[0])
+        self.assertEqual(404, self.files.handle('PROPFIND', '/dav/private/', basic, b'', 'https://x')[0])
+        with self.assertRaises(StoreError):
+            self.call('PUT', '/dav/private/x.md', b'nope')
+
+    def test_dangerous_paths_and_oversize_files_are_refused(self):
+        for path in ('/dav/owner/../x.md', '/dav/owner/a/b/c/d.md'):
+            with self.assertRaises(StoreError):
+                self.call('PUT', path, b'text')
+        with self.assertRaises(StoreError):
+            self.call('PUT', '/dav/owner/t/big.md', b'x' * 70_000)

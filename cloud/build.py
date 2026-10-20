@@ -11,7 +11,7 @@ import sys
 
 root = Path(__file__).resolve().parent.parent
 out = root / 'cloud' / 'src' / 'bigfeels_mem'
-MODULES = ('__init__', 'store', 'schema', 'retrieval', 'privacy', 'sync', 'client', 'mcp',
+MODULES = ('__init__', 'store', 'schema', 'retrieval', 'privacy', 'sync', 'client', 'mcp', 'cloud_files',
            'cloud_service', 'cloud_oauth', 'cloud_rerank')
 sources = [root / 'src' / 'bigfeels_mem' / (name + '.py') for name in MODULES]
 sources = [path for path in sources if path.exists()]

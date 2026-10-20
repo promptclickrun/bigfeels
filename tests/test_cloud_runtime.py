@@ -112,6 +112,37 @@ class RuntimeTests(unittest.TestCase):
         preview = remote.request('/v1/forget_preview', {'id': fresh['id']})
         remote.request('/v1/forget', {'id': fresh['id'], 'plan_token': preview['plan_token']})
         self.assertGreaterEqual(remote.request('/v1/info')['head'], before)
+        # The vault as markdown files over WebDAV, through the real Worker route.
+        token = remote.token
+        def dav(method, path, body=None, headers=None):
+            request = urllib.request.Request(url + path, data=body, method=method,
+                                             headers={'Authorization': 'Bearer ' + token, **(headers or {})})
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    return response.status, response.read().decode()
+            except urllib.error.HTTPError as error:
+                text = error.read().decode()
+                error.close()
+                return error.code, text
+        status, listing = dav('PROPFIND', '/dav/owner/', headers={'Depth': 'infinity'})
+        self.assertEqual(207, status)
+        paths = re.findall(r'<D:href>([^<]+\.md)</D:href>', listing)
+        self.assertTrue(paths, listing[:300])
+        status, text = dav('GET', paths[0])
+        self.assertEqual(200, status)
+        probe = 'Edited from a markdown file ' + uuid.uuid4().hex
+        status, _ = dav('PUT', paths[0], text.split('\n---\n', 1)[0].encode() + b'\n---\n' + probe.encode())
+        self.assertEqual(204, status)
+        self.assertIn(probe, dav('GET', paths[0])[1])
+        status, _ = dav('PUT', '/dav/owner/notes/new-file.md', b'A file made in Obsidian ' + uuid.uuid4().hex.encode())
+        self.assertEqual(201, status)
+        # Without a login the route answers 401 and asks for Basic credentials.
+        try:
+            urllib.request.urlopen(urllib.request.Request(url + '/dav/owner/', method='PROPFIND'))
+            self.fail('files must require a login')
+        except urllib.error.HTTPError as error:
+            self.assertEqual((401, True), (error.code, 'Basic' in (error.headers.get('WWW-Authenticate') or '')))
+            error.close()
         # A gzip request body is accepted, and an oversized one is refused before it is parsed.
         body = gzip.compress(json.dumps({'protocol': 1, 'changes': []}).encode())
         request = urllib.request.Request(url + '/v1/sync/push', data=body, method='POST', headers={

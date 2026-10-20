@@ -28,6 +28,8 @@ def add_commands(commands):
     sub.add_parser('run', help='Keep syncing in the foreground; suitable for a user service')
     invite = sub.add_parser('invite', help='Create a one-time, ten-minute invitation')
     invite.add_argument('--space', action='append', dest='spaces')
+    files = sub.add_parser('files', help='Create a login for viewing and editing memories as markdown files (WebDAV)')
+    files.add_argument('--name', default='Obsidian')
     sub.add_parser('devices', help='List registered devices (administrator only)')
     revoke = sub.add_parser('revoke', help='Revoke a device')
     revoke.add_argument('device_id')
@@ -101,6 +103,13 @@ def run(args, data_dir, stdout, stderr):
         config, client = cloud.configured_client(data_dir)
         if args.cloud_command == 'invite':
             result = client.request('/v1/devices/invite', {'spaces': args.spaces or config['spaces']})
+        elif args.cloud_command == 'files':
+            # A separate device, so the login can be revoked without touching an agent's.
+            invitation = client.request('/v1/devices/invite', {'spaces': config['spaces']})
+            paired = client.request('/v1/devices/join', {'code': invitation['code'], 'name': args.name, 'spaces': config['spaces']})
+            result = {'webdav_url': config['url'].rstrip('/') + '/dav/', 'username': 'bigfeels', 'password': paired['token'],
+                      'device_id': paired['device_id'],
+                      'next': 'In Obsidian, install Remotely Save, choose WebDAV, and enter these. Revoke with: cloud revoke ' + paired['device_id']}
         elif args.cloud_command == 'devices':
             result = client.request('/v1/devices/list', {})
         elif args.cloud_command == 'revoke':
