@@ -479,8 +479,9 @@ class MarkdownFilesTests(unittest.TestCase):
         self.assertEqual(207, status)
         self.assertNotIn('/dav/private/private/', xml)
         self.assertEqual(404, self.files.handle('PROPFIND', '/dav/private/private/', basic, b'', 'https://x')[0])
-        with self.assertRaises(StoreError):
-            self.call('PUT', '/dav/private/x.md', b'nope')
+        # Outside an authorized space a file is scratch, never a memory.
+        self.assertEqual(201, self.call('PUT', '/dav/private/x.md', b'not a memory')[0])
+        self.assertEqual(0, len(self.store.dispatch(P, 'search', {'query': 'memory', 'budget': 2000})['memories']))
 
     def test_dangerous_paths_and_oversize_files_are_refused(self):
         for path in ('/dav/owner/../x.md', '/dav/owner/a/b/c/d.md'):
@@ -536,3 +537,35 @@ class SyncPluginRequestTests(unittest.TestCase):
             self.assertEqual(0, ask('/dav/bigfeels/owner/', '1').count('.md</D:href>'))
             self.assertEqual(3, ask('/dav/bigfeels/owner/', '1').count('/dav/bigfeels/owner/topic'))
             self.assertEqual(1, ask('/dav/bigfeels/owner/', '0').count('<D:response>'))
+
+
+class ScratchTests(unittest.TestCase):
+    """Remotely Save's connection check makes a folder, uploads and overwrites an extensionless file, reads it back, deletes both."""
+
+    def test_connection_check_sequence_and_isolation_from_memories(self):
+        from bigfeels_mem.cloud_files import Files
+        with tempfile.TemporaryDirectory() as t:
+            store = Store(Path(t) / 'v.sqlite')
+            service = CloudService(store, PASSWORD, ['owner'])
+            with store.connection(True) as c:
+                token = service.mint(c, 'dav', ['owner'])['token']
+            files = Files(store, service)
+            call = lambda m, path, body=b'', depth='1': files.handle(m, path, {'Authorization': 'Bearer ' + token, 'Depth': depth}, body, 'https://x')
+            self.assertEqual(201, call('MKCOL', '/dav/bigfeels/rs-test-folder-abc/')[0])
+            self.assertEqual(201, call('PUT', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz', bytes(100))[0])
+            self.assertEqual(204, call('PUT', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz', bytes(200))[0])
+            status, body, _ = call('GET', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz')
+            self.assertEqual((200, bytes(200)), (status, body))
+            self.assertIn('rs-test-file-xyz', call('PROPFIND', '/dav/bigfeels/rs-test-folder-abc/')[1])
+            self.assertIn('rs-test-folder-abc/', call('PROPFIND', '/dav/bigfeels/')[1])
+            self.assertEqual(404, call('PROPFIND', '/dav/bigfeels/nothing-here/')[0])
+            self.assertEqual(204, call('DELETE', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz')[0])
+            self.assertEqual(204, call('DELETE', '/dav/bigfeels/rs-test-folder-abc/')[0])
+            self.assertNotIn('rs-test', call('PROPFIND', '/dav/bigfeels/')[1])
+            # A note dropped in the vault root is kept but is not a memory.
+            self.assertEqual(201, call('PUT', '/dav/bigfeels/Welcome.md', b'Not for agents')[0])
+            self.assertEqual(0, len(store.dispatch(P, 'search', {'query': 'agents', 'budget': 2000})['memories']))
+            self.assertIn('Welcome.md', call('PROPFIND', '/dav/bigfeels/')[1])
+            # Inside a space, non-markdown files are still refused.
+            with self.assertRaises(StoreError):
+                call('PUT', '/dav/bigfeels/owner/topic/picture.png', b'png')

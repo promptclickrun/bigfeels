@@ -12,7 +12,8 @@ Writes go through the same engine operations an agent uses, so they keep history
   PUT an existing file    -> correct (the frontmatter `id` guards against a stale copy)
   PUT a new .md file      -> remember
   DELETE a file           -> forget, including the sources behind it (throttled)
-Only the body is editable. Keep `id` in the frontmatter so a stale copy is refused; `kind` and `key` apply to new files.
+Anything outside a space (a sync plugin's test files, notes in the vault root) is kept in a small scratch
+table and never becomes a memory. Only the body of a memory file is editable. Keep `id` in the frontmatter so a stale copy is refused; `kind` and `key` apply to new files.
 """
 import json
 import re
@@ -21,11 +22,13 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 from urllib.parse import quote, unquote
 
-from .store import MemoryError, Principal
+from .store import MemoryError, Principal, now
 
 KINDS = ('fact', 'preference', 'decision', 'episode', 'procedure', 'task')
 SHOWN = ('active', 'disputed')
 LISTING_SECONDS = 5
+SCRATCH_FILES = 500
+MAX_SCRATCH_BYTES = 64_000
 MAX_FILE_BYTES = 64_000
 DELETES_PER_MINUTE = 20
 MARKDOWN = re.compile(r'\.md$', re.I)
@@ -183,17 +186,21 @@ class Files:
         if method == 'OPTIONS':
             return 200, '', {'DAV': '1', 'Allow': 'OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL',
                              'MS-Author-Via': 'DAV'}
+        # Anything outside a space is not a memory: it goes to a small scratch area so a sync plugin's own
+        # test files and notes dropped in the vault root work, and never reach the agents.
+        scratch = bool(parts) and parts[0] not in spaces
         if method == 'PROPFIND':
-            return self.propfind(parts, (headers.get('Depth') or 'infinity'), spaces, origin)
+            depth = headers.get('Depth') or 'infinity'
+            return self.scratch_propfind(parts, depth) if scratch else self.propfind(parts, depth, spaces, origin)
         if method in ('GET', 'HEAD'):
-            return self.get(parts, spaces, method == 'HEAD')
+            return self.scratch_get(parts, method == 'HEAD') if scratch else self.get(parts, spaces, method == 'HEAD')
         if method == 'MKCOL':
-            # Folders are implied by the memories inside them, so making one only has to say yes.
-            return (201 if not parts or parts[0] in spaces else 403), '', {}
+            # Folders in a space are implied by the memories inside them, so making one only has to say yes.
+            return self.scratch_mkcol(parts) if scratch else (201, '', {})
         if method == 'PUT':
-            return self.put(parts, body, device, spaces)
+            return self.scratch_put(parts, body) if scratch else self.put(parts, body, device, spaces)
         if method == 'DELETE':
-            return self.delete(parts, device, spaces)
+            return self.scratch_delete(parts) if scratch else self.delete(parts, device, spaces)
         return 405, 'Method not supported', {'Allow': 'OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL'}
 
     def _entry(self, href, collection, size=0, modified=None, etag=None):
@@ -220,6 +227,8 @@ class Files:
                     # One request for the whole tree: far faster for a sync plugin than a request per folder.
                     for space in spaces:
                         entries.extend(self._tree(self._listing(c, space), space, base)[1:])
+                if depth != '0':
+                    entries.extend(self._scratch_entries(c, [], depth))
                 return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(entries) + '</D:multistatus>', XML
             files = self._listing(c, parts[0])
         by_topic = {}
@@ -259,6 +268,86 @@ class Files:
             entries.append(self._entry(f'{base}/{space}/{topic}/', True))
             entries.extend(self._file_entry(base, space, m, f) for m, f in by_topic[topic])
         return entries
+
+    # -- scratch area: files that are not memories ---------------------------------------------------------
+
+    def _scratch_rows(self, c):
+        c.execute('CREATE TABLE IF NOT EXISTS dav_scratch (path TEXT PRIMARY KEY, body BLOB, modified TEXT)')
+        return {r[0]: (r[1] or b'', r[2]) for r in c.execute('SELECT path, body, modified FROM dav_scratch')}
+
+    def _scratch_entries(self, c, prefix, depth):
+        """PROPFIND entries below `prefix` (a list of path segments): immediate children, or everything."""
+        rows, seen, entries = self._scratch_rows(c), set(), []
+        for key in sorted(rows):
+            marker = key.endswith('/')
+            segments = key.rstrip('/').split('/')
+            if segments[:len(prefix)] != prefix or len(segments) <= len(prefix):
+                continue
+            last = len(prefix) + 1 if depth != 'infinity' else len(segments)
+            for cut in range(len(prefix) + 1, min(len(segments), last) + 1):
+                path = '/'.join(segments[:cut])
+                is_file = cut == len(segments) and not marker
+                if (path, is_file) in seen:
+                    continue
+                seen.add((path, is_file))
+                href = f'{self.base}/{quote(path, safe="/")}' + ('' if is_file else '/')
+                if is_file:
+                    body, modified = rows[key]
+                    entries.append(self._entry(href, False, len(body), http_date(modified), f'{len(body)}-{modified}'))
+                else:
+                    entries.append(self._entry(href, True))
+        return entries
+
+    def scratch_propfind(self, parts, depth):
+        path = '/'.join(parts)
+        with self.store.connection(True) as c:
+            rows = self._scratch_rows(c)
+            if path in rows:
+                body, modified = rows[path]
+                one = [self._entry(f'{self.base}/{quote(path, safe="/")}', False, len(body), http_date(modified), f'{len(body)}-{modified}')]
+            elif path + '/' in rows or any(k.startswith(path + '/') for k in rows):
+                one = [self._entry(f'{self.base}/{quote(path, safe="/")}/', True)]
+                if depth != '0':
+                    one += self._scratch_entries(c, parts, depth)
+            else:
+                return 404, '', {}
+        return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(one) + '</D:multistatus>', XML
+
+    def scratch_get(self, parts, head_only):
+        with self.store.connection(True) as c:
+            row = self._scratch_rows(c).get('/'.join(parts))
+        if row is None:
+            return 404, 'No such file', {}
+        body, modified = row
+        return 200, b'' if head_only else bytes(body), {'Content-Type': 'application/octet-stream',
+                                                        'ETag': f'"{len(body)}-{modified}"', 'Last-Modified': http_date(modified)}
+
+    def scratch_mkcol(self, parts):
+        with self.store.connection(True) as c:
+            rows = self._scratch_rows(c)
+            if len(rows) >= SCRATCH_FILES:
+                raise MemoryError('Too many files outside the memory folders', 413)
+            c.execute('INSERT OR IGNORE INTO dav_scratch VALUES (?,?,?)', ('/'.join(parts) + '/', b'', now()))
+        return 201, '', {}
+
+    def scratch_put(self, parts, body):
+        if len(body) > MAX_SCRATCH_BYTES:
+            raise MemoryError('File is too large to keep outside the memory folders', 413)
+        with self.store.connection(True) as c:
+            rows = self._scratch_rows(c)
+            path = '/'.join(parts)
+            if path not in rows and len(rows) >= SCRATCH_FILES:
+                raise MemoryError('Too many files outside the memory folders', 413)
+            c.execute('INSERT OR REPLACE INTO dav_scratch VALUES (?,?,?)', (path, body, now()))
+        return 201 if path not in rows else 204, '', {}
+
+    def scratch_delete(self, parts):
+        path = '/'.join(parts)
+        with self.store.connection(True) as c:
+            doomed = [k for k in self._scratch_rows(c) if k.rstrip('/') == path or k.startswith(path + '/')]
+            for key in doomed:
+                c.execute('DELETE FROM dav_scratch WHERE path=?', (key,))
+        return (204 if doomed else 404), '', {}
 
     def _file_for(self, files, name):
         match = FILE_ID.search(name)

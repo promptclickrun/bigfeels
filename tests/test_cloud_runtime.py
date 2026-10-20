@@ -136,6 +136,12 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn(probe, dav('GET', paths[0])[1])
         status, _ = dav('PUT', '/dav/owner/notes/new-file.md', b'A file made in Obsidian ' + uuid.uuid4().hex.encode())
         self.assertEqual(201, status)
+        # Remotely Save's connection check: folder, upload, overwrite, read, delete, in the vault wrapper folder.
+        self.assertEqual(201, dav('MKCOL', '/dav/bigfeels/rs-test-folder-1/')[0])
+        self.assertEqual(201, dav('PUT', '/dav/bigfeels/rs-test-folder-1/rs-test-file-1', bytes(100))[0])
+        self.assertEqual(204, dav('PUT', '/dav/bigfeels/rs-test-folder-1/rs-test-file-1', bytes(200))[0])
+        self.assertEqual(204, dav('DELETE', '/dav/bigfeels/rs-test-folder-1/rs-test-file-1')[0])
+        self.assertEqual(204, dav('DELETE', '/dav/bigfeels/rs-test-folder-1/')[0])
         # Obsidian's mobile app sends an Origin that varies by platform; it must not be refused.
         for origin in ('app://obsidian.md', 'capacitor://localhost', 'https://localhost', 'ionic://localhost'):
             status, _ = dav('PROPFIND', '/dav/bigfeels/', headers={'Depth': '0', 'Origin': origin})
