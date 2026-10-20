@@ -17,7 +17,7 @@ from bigfeels_mem.store import Principal, Store
 
 
 class HermesAdapterToolTests(unittest.TestCase):
-    def test_schemas_expose_only_the_seven_bounded_memory_operations(self) -> None:
+    def test_schemas_expose_only_the_bounded_memory_and_wiki_operations(self) -> None:
         schemas = tool_schemas()
 
         self.assertEqual(
@@ -29,6 +29,11 @@ class HermesAdapterToolTests(unittest.TestCase):
                 "bigfeels_correct",
                 "bigfeels_forget_preview",
                 "bigfeels_forget",
+                "bigfeels_wiki_search",
+                "bigfeels_wiki_read",
+                "bigfeels_wiki_list",
+                "bigfeels_wiki_write",
+                "bigfeels_wiki_delete",
                 "bigfeels_status",
             ],
         )

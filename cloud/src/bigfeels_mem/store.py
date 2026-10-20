@@ -254,6 +254,14 @@ class Store:
                       'inspect': self._inspect, 'status': self._status, 'export': self._export}
         if operation in ('search', 'context'):
             return self._search(principal, payload, browsing=operation == 'search')
+        if operation.startswith('wiki_'):
+            from . import pages
+            if operation not in pages.OPERATIONS:
+                raise MemoryError('Unknown operation', 404)
+            space = payload.get('space', principal.spaces[0])
+            self._scope(principal, space)
+            with self.connection(operation in pages.WRITES) as c:
+                return pages.dispatch(c, space, operation, payload, principal.name)
         handler = operations.get(operation)
         if handler is None:
             raise MemoryError('Unknown operation', 404)

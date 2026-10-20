@@ -173,6 +173,11 @@ class HermesAdapterTests(unittest.TestCase):
                 "bigfeels_correct",
                 "bigfeels_forget_preview",
                 "bigfeels_forget",
+                "bigfeels_wiki_search",
+                "bigfeels_wiki_read",
+                "bigfeels_wiki_list",
+                "bigfeels_wiki_write",
+                "bigfeels_wiki_delete",
                 "bigfeels_status",
             ],
         )

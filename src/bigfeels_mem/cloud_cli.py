@@ -28,8 +28,11 @@ def add_commands(commands):
     sub.add_parser('run', help='Keep syncing in the foreground; suitable for a user service')
     invite = sub.add_parser('invite', help='Create a one-time, ten-minute invitation')
     invite.add_argument('--space', action='append', dest='spaces')
-    files = sub.add_parser('files', help='Create a login for viewing and editing memories as markdown files (WebDAV)')
+    files = sub.add_parser('files', help='Create a login for reading and editing the shared wiki in Obsidian (WebDAV)')
     files.add_argument('--name', default='Obsidian')
+    push = sub.add_parser('wiki-push', help='Upload a local markdown wiki folder into the shared wiki (new pages only, unless --replace)')
+    push.add_argument('folder')
+    push.add_argument('--replace', action='store_true', help='Also overwrite pages that already exist (history keeps the old text)')
     sub.add_parser('devices', help='List registered devices (administrator only)')
     revoke = sub.add_parser('revoke', help='Revoke a device')
     revoke.add_argument('device_id')
@@ -110,6 +113,8 @@ def run(args, data_dir, stdout, stderr):
             result = {'webdav_url': config['url'].rstrip('/') + '/dav/', 'username': 'bigfeels', 'password': paired['token'],
                       'device_id': paired['device_id'],
                       'next': 'In Obsidian, install Remotely Save, choose WebDAV, and enter these. Revoke with: cloud revoke ' + paired['device_id']}
+        elif args.cloud_command == 'wiki-push':
+            result = cloud.push_wiki(data_dir, args.folder, replace=args.replace)
         elif args.cloud_command == 'devices':
             result = client.request('/v1/devices/list', {})
         elif args.cloud_command == 'revoke':

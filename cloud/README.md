@@ -268,18 +268,19 @@ The isolated runtime harness runs on macOS/Linux; the ordinary CLI test matrix a
 The Python Worker imports a copy of the canonical engine in `cloud/src/bigfeels_mem/` and Cloudflare's MIT-licensed `workers-runtime-sdk` from `cloud/python_modules/` (vendored so the button's plain `wrangler deploy` needs no `uv`; refresh with `uv sync --locked && python3 build.py --vendor`). It is committed because Deploy to Cloudflare treats `cloud/` as the whole repository; run `python3 cloud/build.py` after changing the engine (CI fails if the copy is stale). Dependency environments, secrets, and local runtime state are ignored by git. Remove `.venv-workers`, `python_modules`, and `.wrangler` when no longer needed. Keep `uv.lock` and `package-lock.json` for repeatable deployments.
 
 
-## Read and edit memories as markdown files (Obsidian)
+## The shared wiki (Obsidian)
 
-The Worker serves the vault as a folder of markdown files over WebDAV at `/dav/`, so Obsidian (with the
-Remotely Save plugin), Finder, Windows Explorer and any WebDAV client can browse and edit it with no
-model involved. Every agent's memories are in the same folder because they are in the same vault.
+The vault holds a wiki next to the memories: curated, interlinked markdown pages (`SCHEMA.md`, `index.md`,
+`log.md`, `entities/`, `concepts/`, ...) that every agent and the owner maintain. Agents use the
+`bigfeels_wiki_*` tools (`memory_wiki_*` over MCP); people use any markdown client through WebDAV at `/dav/`.
+The atomic memories are not files; agents compile them into pages.
 
 ```
-bigfeels-mem cloud files          # prints the WebDAV URL, username and a password for one new login
+bigfeels-mem cloud files                    # WebDAV URL, username and a password for one new login
+bigfeels-mem cloud wiki-push ~/my-wiki      # upload an existing markdown wiki (new pages only; --replace to overwrite)
 ```
 
-Layout: `/dav/<space>/<topic>/<name>--<id12>.md`, one file per current memory, grouped by the first part
-of its key. Saving an existing file makes a correction (history is kept, and agents see the new text);
-saving a new `.md` file makes a memory; deleting a file forgets the memory and its sources. Keep the `id`
-line in the frontmatter: a copy of an older version is refused instead of overwriting a newer one.
-Revoke the login any time with `bigfeels-mem cloud revoke <device_id>`.
+In Obsidian, install Remotely Save, choose WebDAV, and enter the URL and login. The vault opens on the wiki.
+An agent's write must name the revision it read, so two agents cannot overwrite each other; a file client's
+write wins. Either way the last 20 versions of every page are kept. Revoke a login with
+`bigfeels-mem cloud revoke <device_id>`.

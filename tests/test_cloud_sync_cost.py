@@ -410,162 +410,127 @@ class BackupTests(unittest.TestCase):
             cloud._pull_with_retry(Denied(), 0)
 
 
-class MarkdownFilesTests(unittest.TestCase):
-    """The vault as markdown files over WebDAV: reading, editing, creating and deleting."""
+def _files_fixture(test, spaces=('owner',)):
+    from bigfeels_mem.cloud_files import Files
+    directory = tempfile.TemporaryDirectory()
+    test.addCleanup(directory.cleanup)
+    store = Store(Path(directory.name) / 'v.sqlite')
+    service = CloudService(store, PASSWORD, list(spaces))
+    with store.connection(True) as c:
+        token = service.mint(c, 'Obsidian', list(spaces))['token']
+    files = Files(store, service)
 
-    def setUp(self):
-        from bigfeels_mem.cloud_files import Files
-        self.dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.dir.cleanup)
-        self.store = Store(Path(self.dir.name) / 'v.sqlite')
-        self.service = CloudService(self.store, PASSWORD, ['owner'])
-        with self.store.connection(True) as c:
-            self.token = self.service.mint(c, 'dav', ['owner'])['token']
-        self.files = Files(self.store, self.service)
-        self.auth = {'Authorization': 'Bearer ' + self.token}
+    def call(method, path, body=b'', depth='1', auth=None):
+        headers = {'Authorization': auth or 'Bearer ' + token, 'Depth': depth}
+        return files.handle(method, path, headers, body, 'https://x')
+    return store, call, token
 
-    def call(self, method, path, body=b'', headers=None):
-        return self.files.handle(method, path, {**self.auth, **(headers or {})}, body, 'https://x')
 
-    def names(self):
-        status, xml, _ = self.call('PROPFIND', '/dav/owner/', headers={'Depth': 'infinity'})
-        self.assertEqual(207, status)
-        return re.findall(r'<D:href>([^<]+\.md)</D:href>', xml)
+def _hrefs(xml):
+    return re.findall(r'<D:href>([^<]+)</D:href>', xml)
 
-    def test_a_memory_is_a_file_and_editing_it_makes_a_correction_not_a_second_file(self):
-        saved = self.store.dispatch(P, 'remember', {'space': 'owner', 'content': 'Prefers dark mode', 'key': 'ui.theme'})
-        paths = self.names()
-        self.assertEqual(1, len(paths))
-        self.assertTrue(paths[0].startswith('/dav/owner/ui/ui-theme--'))
-        status, text, _ = self.call('GET', paths[0])
-        self.assertEqual(200, status)
-        self.assertIn('Prefers dark mode', text)
-        status, _, _ = self.call('PUT', paths[0], text.replace('Prefers dark mode', 'Prefers light mode').encode())
-        self.assertEqual(204, status)
-        self.assertEqual(paths, self.names(), 'an edit keeps the file name')
-        self.assertIn('light mode', self.call('GET', paths[0])[1])
-        old = self.store.dispatch(P, 'inspect', {'id': saved['id']})
-        self.assertEqual('superseded', old['status'])
 
-    def test_a_stale_copy_does_not_overwrite_a_newer_change(self):
-        self.store.dispatch(P, 'remember', {'space': 'owner', 'content': 'v1', 'key': 'k.stale'})
-        path = self.names()[0]
-        stale = self.call('GET', path)[1]
-        self.call('PUT', path, stale.replace('v1', 'v2').encode())
+class WikiPagesTests(unittest.TestCase):
+    """The shared wiki an agent edits: revisions, history, search, spaces."""
+
+    def test_agents_cannot_overwrite_each_others_edits(self):
+        store = Store(Path(tempfile.mkdtemp()) / 'v.sqlite')
+        self.addCleanup(lambda: store.path.unlink(missing_ok=True))
+        alfie, jax = Principal('alfie', ('owner',)), Principal('jax', ('owner',))
+        made = store.dispatch(alfie, 'wiki_write', {'path': 'entities/colt.md', 'content': '# Colt', 'base_revision': 0})
+        self.assertEqual(1, made['revision'])
+        read = store.dispatch(jax, 'wiki_read', {'path': 'entities/colt.md'})
+        store.dispatch(alfie, 'wiki_write', {'path': 'entities/colt.md', 'content': '# Colt\nAlfie edit', 'base_revision': 1})
         with self.assertRaises(StoreError) as raised:
-            self.call('PUT', path, stale.replace('v1', 'from the old copy').encode())
+            store.dispatch(jax, 'wiki_write', {'path': 'entities/colt.md', 'content': '# Colt\nJax edit', 'base_revision': read['revision']})
         self.assertEqual(409, raised.exception.status)
-        self.assertIn('v2', self.call('GET', path)[1])
+        self.assertIn('Alfie edit', store.dispatch(jax, 'wiki_read', {'path': 'entities/colt.md'})['content'])
+        self.assertEqual([1], [v['revision'] for v in store.dispatch(jax, 'wiki_history', {'path': 'entities/colt.md'})['versions']])
+        self.assertEqual('entities/colt.md', store.dispatch(jax, 'wiki_search', {'query': 'alfie edit'})['pages'][0]['path'])
+        with self.assertRaises(StoreError):
+            store.dispatch(jax, 'wiki_list', {'space': 'private'})
 
-    def test_new_file_becomes_a_memory_and_delete_forgets_it(self):
-        status, _, _ = self.call('PUT', '/dav/owner/garden/tomatoes.md', b'---\nkind: "preference"\n---\nGrows tomatoes in the back bed')
-        self.assertEqual(201, status)
-        found = self.store.dispatch(P, 'search', {'query': 'tomatoes', 'budget': 2000})['memories']
-        self.assertEqual(('preference', 'garden.tomatoes'), (found[0]['kind'], found[0]['key']))
-        path = self.names()[0]
-        self.assertEqual(204, self.call('DELETE', path)[0])
-        self.assertEqual([], self.names())
-        self.assertEqual(0, len(self.store.dispatch(P, 'search', {'query': 'tomatoes', 'budget': 2000})['memories']))
+    def test_secrets_are_redacted_and_paths_are_checked(self):
+        store = Store(Path(tempfile.mkdtemp()) / 'v.sqlite')
+        self.addCleanup(lambda: store.path.unlink(missing_ok=True))
+        alfie = Principal('alfie', ('owner',))
+        store.dispatch(alfie, 'wiki_write', {'path': 'n.md', 'content': 'api_key = sk-abcdefghijklmnopqrstuv', 'base_revision': 0})
+        self.assertNotIn('sk-abc', store.dispatch(alfie, 'wiki_read', {'path': 'n.md'})['content'])
+        for bad in ('../x.md', '', 'a/../../b'):
+            with self.assertRaises(StoreError):
+                store.dispatch(alfie, 'wiki_write', {'path': bad, 'content': 'x', 'base_revision': 0})
 
-    def test_login_is_required_and_other_spaces_stay_hidden(self):
-        status, _, headers = self.files.handle('PROPFIND', '/dav/', {}, b'', 'https://x')
+
+class WikiFilesTests(unittest.TestCase):
+    """The wiki over WebDAV, as Remotely Save drives it: /dav/<vault name>/<page path>."""
+
+    def test_vault_root_is_the_wiki_and_memories_are_not_files(self):
+        store, call, _ = _files_fixture(self)
+        store.dispatch(P, 'remember', {'space': 'owner', 'content': 'An atomic memory', 'key': 'k.one'})
+        store.dispatch(P, 'wiki_write', {'path': 'index.md', 'content': '# Index\n- [[colt]]', 'base_revision': 0})
+        store.dispatch(P, 'wiki_write', {'path': 'entities/colt.md', 'content': '# Colt', 'base_revision': 0})
+        status, xml, _ = call('PROPFIND', '/dav/bigfeels/', depth='infinity')
+        self.assertEqual(207, status)
+        self.assertEqual({'/dav/bigfeels/', '/dav/bigfeels/entities/', '/dav/bigfeels/entities/colt.md', '/dav/bigfeels/index.md'},
+                         set(_hrefs(xml)))
+        self.assertEqual({'/dav/bigfeels/', '/dav/bigfeels/entities/', '/dav/bigfeels/index.md'},
+                         set(_hrefs(call('PROPFIND', '/dav/bigfeels/', depth='1')[1])))
+        self.assertEqual(b'# Colt', call('GET', '/dav/bigfeels/entities/colt.md')[1])
+
+    def test_obsidian_edits_create_and_delete_pages_with_history(self):
+        store, call, _ = _files_fixture(self)
+        self.assertEqual(201, call('MKCOL', '/dav/bigfeels/concepts/')[0])
+        self.assertIn('/dav/bigfeels/concepts/', _hrefs(call('PROPFIND', '/dav/bigfeels/', depth='1')[1]))
+        self.assertEqual(201, call('PUT', '/dav/bigfeels/concepts/tea.md', b'Likes tea')[0])
+        self.assertEqual(204, call('PUT', '/dav/bigfeels/concepts/tea.md', b'Likes green tea')[0])
+        page = store.dispatch(P, 'wiki_read', {'path': 'concepts/tea.md'})
+        self.assertEqual(('Likes green tea', 2), (page['content'], page['revision']))
+        self.assertTrue(page['updated_by'].startswith('files:Obsidian'))
+        self.assertEqual(201, call('PUT', '/dav/bigfeels/assets/pic.png', b'\x89PNG\x00\xff')[0])
+        self.assertEqual(b'\x89PNG\x00\xff', call('GET', '/dav/bigfeels/assets/pic.png')[1])
+        self.assertEqual(204, call('DELETE', '/dav/bigfeels/concepts/')[0])
+        self.assertEqual(404, call('GET', '/dav/bigfeels/concepts/tea.md')[0])
+        versions = store.dispatch(P, 'wiki_history', {'path': 'concepts/tea.md'})['versions']
+        self.assertEqual([3, 2, 1], [v['revision'] for v in versions])
+        self.assertTrue(versions[0]['deleted'])
+
+    def test_remotely_save_connection_check_leaves_nothing_behind(self):
+        store, call, _ = _files_fixture(self)
+        self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/', depth='0')[0])
+        self.assertEqual(201, call('MKCOL', '/dav/bigfeels/rs-test-folder-abc/')[0])
+        self.assertEqual(201, call('PUT', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz', bytes(100))[0])
+        self.assertEqual(204, call('PUT', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz', bytes(200))[0])
+        self.assertEqual(bytes(200), call('GET', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz')[1])
+        self.assertEqual(204, call('DELETE', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz')[0])
+        self.assertEqual(204, call('DELETE', '/dav/bigfeels/rs-test-folder-abc/')[0])
+        self.assertEqual(['/dav/bigfeels/'], _hrefs(call('PROPFIND', '/dav/bigfeels/', depth='infinity')[1]))
+        with store.connection() as c:
+            self.assertEqual(0, c.execute('SELECT COUNT(*) FROM wiki_history').fetchone()[0])
+
+    def test_files_from_the_old_memory_layout_are_not_pushed_back(self):
+        store, call, _ = _files_fixture(self)
+        old = b'---\nid: "mem_5e2e9e01e1554f35a37c1e571c4ac99f"\nlineage: "mem_5e2e9e01e1554f35a37c1e571c4ac99f"\n---\nx'
+        self.assertEqual(204, call('PUT', '/dav/bigfeels/owner/0752db2/x--5e2e9e01e155.md', old)[0])
+        self.assertEqual([], store.dispatch(P, 'wiki_list', {})['pages'])
+
+    def test_login_is_required_and_obsidian_settings_keep_no_history(self):
+        store, call, token = _files_fixture(self)
+        status, _, headers = call('PROPFIND', '/dav/bigfeels/', auth='Basic bm9wZTpub3Bl')
         self.assertEqual(401, status)
         self.assertIn('Basic', headers['WWW-Authenticate'])
         import base64
-        basic = {'Authorization': 'Basic ' + base64.b64encode(b'bigfeels:' + self.token.encode()).decode()}
-        self.assertEqual(207, self.files.handle('PROPFIND', '/dav/', basic, b'', 'https://x')[0])
-        # An unknown first folder is a sync plugin's vault wrapper: it lists only the spaces this login may see.
-        status, xml, _ = self.files.handle('PROPFIND', '/dav/private/', {**basic, 'Depth': '1'}, b'', 'https://x')
-        self.assertEqual(207, status)
-        self.assertNotIn('/dav/private/private/', xml)
-        self.assertEqual(404, self.files.handle('PROPFIND', '/dav/private/private/', basic, b'', 'https://x')[0])
-        # Outside an authorized space a file is scratch, never a memory.
-        self.assertEqual(201, self.call('PUT', '/dav/private/x.md', b'not a memory')[0])
-        self.assertEqual(0, len(self.store.dispatch(P, 'search', {'query': 'memory', 'budget': 2000})['memories']))
-
-    def test_dangerous_paths_and_oversize_files_are_refused(self):
-        for path in ('/dav/owner/../x.md', '/dav/owner/a/b/c/d.md'):
+        basic = 'Basic ' + base64.b64encode(b'bigfeels:' + token.encode()).decode()
+        self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/', auth=basic)[0])
+        for _ in range(3):
+            call('PUT', '/dav/bigfeels/.obsidian/workspace.json', b'{"n":%d}' % _)
+        self.assertEqual([], store.dispatch(P, 'wiki_history', {'path': '.obsidian/workspace.json'})['versions'])
+        for path in ('/dav/bigfeels/../x.md',):
             with self.assertRaises(StoreError):
-                self.call('PUT', path, b'text')
-        with self.assertRaises(StoreError):
-            self.call('PUT', '/dav/owner/t/big.md', b'x' * 70_000)
+                call('PUT', path, b'text')
 
-
-class SyncPluginRequestTests(unittest.TestCase):
-    """The requests Remotely Save sends: a vault-named wrapper folder, folder-by-folder listing, MKCOL."""
-
-    def test_vault_named_wrapper_folder_serves_the_same_tree(self):
-        from bigfeels_mem.cloud_files import Files
-        with tempfile.TemporaryDirectory() as t:
-            store = Store(Path(t) / 'v.sqlite')
-            service = CloudService(store, PASSWORD, ['owner'])
-            with store.connection(True) as c:
-                token = service.mint(c, 'dav', ['owner'])['token']
-            files = Files(store, service)
-            store.dispatch(P, 'remember', {'space': 'owner', 'content': 'Likes tea', 'key': 'drinks.tea'})
-            auth = {'Authorization': 'Bearer ' + token}
-            call = lambda m, path, h=None, body=b'': files.handle(m, path, {**auth, **(h or {})}, body, 'https://x')
-            self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/', {'Depth': '0'})[0])
-            self.assertEqual(201, call('MKCOL', '/dav/bigfeels/')[0])
-            status, xml, _ = call('PROPFIND', '/dav/bigfeels/', {'Depth': '1'})
-            self.assertIn('/dav/bigfeels/owner/', xml)
-            status, xml, _ = call('PROPFIND', '/dav/bigfeels/owner/', {'Depth': '1'})
-            self.assertIn('/dav/bigfeels/owner/drinks/', xml)
-            status, xml, _ = call('PROPFIND', '/dav/bigfeels/owner/drinks/', {'Depth': '1'})
-            name = re.search(r'<D:href>([^<]+\.md)</D:href>', xml).group(1)
-            self.assertTrue(name.startswith('/dav/bigfeels/owner/drinks/drinks-tea--'))
-            self.assertIn('Likes tea', call('GET', name)[1])
-            self.assertEqual(201, call('MKCOL', '/dav/bigfeels/owner/empty-topic/')[0])
-            self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/owner/empty-topic/', {'Depth': '1'})[0])
-            self.assertEqual(201, call('PUT', '/dav/bigfeels/owner/notes/hello.md', body=b'Hello from the wrapper')[0])
-            self.assertIn('Hello from the wrapper', store.dispatch(P, 'search', {'query': 'wrapper', 'budget': 2000})['memories'][0]['content'])
-
-    def test_depth_infinity_from_the_root_lists_the_whole_tree_in_one_request(self):
-        from bigfeels_mem.cloud_files import Files
-        with tempfile.TemporaryDirectory() as t:
-            store = Store(Path(t) / 'v.sqlite')
-            service = CloudService(store, PASSWORD, ['owner'])
-            with store.connection(True) as c:
-                token = service.mint(c, 'dav', ['owner'])['token']
-            for i in range(3):
-                store.dispatch(P, 'remember', {'space': 'owner', 'content': f'Topic note {i}', 'key': f'topic{i}.note'})
-            files = Files(store, service)
-            ask = lambda path, depth: files.handle('PROPFIND', path, {'Authorization': 'Bearer ' + token, 'Depth': depth}, b'', 'https://x')[1]
-            whole = ask('/dav/bigfeels/', 'infinity')
-            self.assertEqual(3, whole.count('.md</D:href>'))
-            self.assertEqual(3, ask('/dav/bigfeels/owner/', 'infinity').count('.md</D:href>'))
-            self.assertEqual(0, ask('/dav/bigfeels/owner/', '1').count('.md</D:href>'))
-            self.assertEqual(3, ask('/dav/bigfeels/owner/', '1').count('/dav/bigfeels/owner/topic'))
-            self.assertEqual(1, ask('/dav/bigfeels/owner/', '0').count('<D:response>'))
-
-
-class ScratchTests(unittest.TestCase):
-    """Remotely Save's connection check makes a folder, uploads and overwrites an extensionless file, reads it back, deletes both."""
-
-    def test_connection_check_sequence_and_isolation_from_memories(self):
-        from bigfeels_mem.cloud_files import Files
-        with tempfile.TemporaryDirectory() as t:
-            store = Store(Path(t) / 'v.sqlite')
-            service = CloudService(store, PASSWORD, ['owner'])
-            with store.connection(True) as c:
-                token = service.mint(c, 'dav', ['owner'])['token']
-            files = Files(store, service)
-            call = lambda m, path, body=b'', depth='1': files.handle(m, path, {'Authorization': 'Bearer ' + token, 'Depth': depth}, body, 'https://x')
-            self.assertEqual(201, call('MKCOL', '/dav/bigfeels/rs-test-folder-abc/')[0])
-            self.assertEqual(201, call('PUT', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz', bytes(100))[0])
-            self.assertEqual(204, call('PUT', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz', bytes(200))[0])
-            status, body, _ = call('GET', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz')
-            self.assertEqual((200, bytes(200)), (status, body))
-            self.assertIn('rs-test-file-xyz', call('PROPFIND', '/dav/bigfeels/rs-test-folder-abc/')[1])
-            self.assertIn('rs-test-folder-abc/', call('PROPFIND', '/dav/bigfeels/')[1])
-            self.assertEqual(404, call('PROPFIND', '/dav/bigfeels/nothing-here/')[0])
-            self.assertEqual(204, call('DELETE', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz')[0])
-            self.assertEqual(204, call('DELETE', '/dav/bigfeels/rs-test-folder-abc/')[0])
-            self.assertNotIn('rs-test', call('PROPFIND', '/dav/bigfeels/')[1])
-            # A note dropped in the vault root is kept but is not a memory.
-            self.assertEqual(201, call('PUT', '/dav/bigfeels/Welcome.md', b'Not for agents')[0])
-            self.assertEqual(0, len(store.dispatch(P, 'search', {'query': 'agents', 'budget': 2000})['memories']))
-            self.assertIn('Welcome.md', call('PROPFIND', '/dav/bigfeels/')[1])
-            # Inside a space, non-markdown files are still refused.
-            with self.assertRaises(StoreError):
-                call('PUT', '/dav/bigfeels/owner/topic/picture.png', b'png')
+    def test_a_login_with_several_spaces_gets_one_folder_per_space(self):
+        store, call, _ = _files_fixture(self, spaces=('owner', 'family'))
+        Store.dispatch(store, Principal('t', ('family',)), 'wiki_write', {'space': 'family', 'path': 'groceries.md', 'content': 'Milk', 'base_revision': 0})
+        hrefs = set(_hrefs(call('PROPFIND', '/dav/bigfeels/', depth='infinity')[1]))
+        self.assertTrue({'/dav/bigfeels/owner/', '/dav/bigfeels/family/', '/dav/bigfeels/family/groceries.md'} <= hrefs)
+        self.assertEqual(b'Milk', call('GET', '/dav/bigfeels/family/groceries.md')[1])

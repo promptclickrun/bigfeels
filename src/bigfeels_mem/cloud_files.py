@@ -1,55 +1,39 @@
-"""The vault as a folder of markdown files over WebDAV, so Obsidian and file managers can read and edit it.
+"""The shared wiki over WebDAV, so Obsidian (Remotely Save), Finder and Explorer read and edit it directly.
 
-Layout:  /dav/<space>/<topic>/<name>--<id12>.md
+    /dav/<vault name>/<page path>              a login with one space: the vault is that space's wiki
+    /dav/<vault name>/<space>/<page path>      a login with several spaces: one folder per space
 
-* One file per current memory (active or disputed). `topic` is the first part of the memory's key,
-  lowercased; `name` comes from the key, or from the first words of an unkeyed memory.
-* `id12` is the first 12 hex digits of the lineage's first memory. A correction makes a new memory,
-  but the file keeps its name and shows the newest version, so an edit never renames a file.
-* The folder and name are cosmetic: the file is found by `id12` alone, so moving or renaming it is harmless.
+Sync plugins put a vault inside a folder named after it (Remotely Save uses `/<vault name>/`), so the first
+folder is always that wrapper, whatever it is called. Below it is the wiki exactly as stored: `SCHEMA.md`,
+`index.md`, `log.md`, `entities/...`, attachments. Agents edit the same pages through the `wiki_*`
+operations, so the owner and every agent see one copy.
 
-Writes go through the same engine operations an agent uses, so they keep history, redaction and sync:
-  PUT an existing file    -> correct (the frontmatter `id` guards against a stale copy)
-  PUT a new .md file      -> remember
-  DELETE a file           -> forget, including the sources behind it (throttled)
-Anything outside a space (a sync plugin's test files, notes in the vault root) is kept in a small scratch
-table and never becomes a memory. Only the body of a memory file is editable. Keep `id` in the frontmatter so a stale copy is refused; `kind` and `key` apply to new files.
+The atomic memories agents search are not files: 11,000 one-line records are not a wiki. Agents compile
+them into pages.
+
+WebDAV writes win, since a client cannot say which version it edited. Every replaced or deleted page stays
+in the page history (last 20 versions), so nothing a sync plugin overwrites is lost. Deleting many pages at
+once is throttled, because a plugin turns a local folder delete into a remote one.
 """
-import json
-import re
-import time
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from urllib.parse import quote, unquote
 
-from .store import MemoryError, Principal, now
+from . import pages
+from .store import MemoryError, now
 
-KINDS = ('fact', 'preference', 'decision', 'episode', 'procedure', 'task')
-SHOWN = ('active', 'disputed')
-LISTING_SECONDS = 5
 SCRATCH_FILES = 500
 MAX_SCRATCH_BYTES = 64_000
-MAX_FILE_BYTES = 64_000
-DELETES_PER_MINUTE = 20
-MARKDOWN = re.compile(r'\.md$', re.I)
-FILE_ID = re.compile(r'--([0-9a-f]{12})\.md$')
+MAX_UPLOAD_BYTES = pages.MAX_PAGE_BYTES
+DELETES_PER_MINUTE = 60
+# Files kept without history: Obsidian's settings change constantly, and sync plugins write throwaway test files.
+PRIVATE_PREFIXES = ('.obsidian/', '.trash/', 'rs-test-folder-')
+# A file in the old one-file-per-memory layout. Phones that synced it would push 11,000 of them back as pages.
+OLD_MEMORY_FILE = b'---\nid: "mem_'
 XML = {'Content-Type': 'application/xml; charset=utf-8'}
-
-
-def clean(text, limit):
-    """A safe path segment: ASCII letters, digits, dash and underscore only."""
-    text = re.sub(r'[^A-Za-z0-9_-]+', '-', text or '').strip('-')
-    return text[:limit].strip('-')
-
-
-def topic_of(key):
-    first = re.split(r'[.:/]', key or '')[0] if key else ''
-    return clean(first, 40).lower() or '_unkeyed'
-
-
-def file_name(root):
-    label = clean(root['key'], 60) if root['key'] else clean(' '.join(root['content'].split()[:8]), 50)
-    return (label or 'note') + '--' + root['id'][4:16] + '.md'
+TYPES = {'md': 'text/markdown; charset=utf-8', 'txt': 'text/plain; charset=utf-8', 'json': 'application/json',
+         'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'gif': 'image/gif', 'svg': 'image/svg+xml',
+         'pdf': 'application/pdf', 'canvas': 'application/json'}
 
 
 def escape(text):
@@ -64,96 +48,17 @@ def http_date(stamp):
     return format_datetime(moment.astimezone(timezone.utc), usegmt=True)
 
 
-def render(m):
-    """The markdown file for one memory. Strings are JSON-quoted, which is valid YAML."""
-    head = [('id', m['id']), ('lineage', m['lineage']), ('revision', m['revision']), ('kind', m['kind']),
-            ('status', m['status']), ('basis', m['basis']), ('key', m['key']), ('space', m['space']),
-            ('recorded', m['recorded_at']), ('valid_from', m['valid_from'])]
-    lines = [f'{name}: {json.dumps(value, ensure_ascii=False)}' for name, value in head]
-    return '---\n' + '\n'.join(lines) + '\n---\n' + m['content'].strip('\n') + '\n'
+def content_type(path):
+    return TYPES.get(path.rsplit('.', 1)[-1].lower() if '.' in path else '', 'application/octet-stream')
 
 
-def parse(text):
-    """Split an uploaded file into (frontmatter fields, body). Unreadable frontmatter counts as none."""
-    text = text.replace('\r\n', '\n').lstrip('\ufeff')
-    fields, body = {}, text
-    if text.startswith('---\n'):
-        end = text.find('\n---\n', 3)
-        if end > 0:
-            body = text[end + 5:]
-            for line in text[4:end].split('\n'):
-                name, sep, value = line.partition(':')
-                if not sep or not name.strip().isidentifier():
-                    continue
-                value = value.strip()
-                try:
-                    fields[name.strip()] = json.loads(value)
-                except ValueError:
-                    fields[name.strip()] = value
-    return fields, body.strip('\n')
+def multistatus(entries):
+    return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(entries) + '</D:multistatus>', XML
 
 
 class Files:
     def __init__(self, store, service):
         self.store, self.service = store, service
-        self.cache = {}
-
-    # -- reading the vault as files -------------------------------------------------------------
-
-    def _lineages(self, c, spaces):
-        """Every current memory as a file: {root_id: memory}, built from two queries."""
-        marks = ','.join('?' for _ in spaces)
-        rows = {}
-        for row in c.execute(f"SELECT * FROM memories WHERE space IN ({marks}) AND (status IN ('active','disputed') "
-                             "OR id IN (SELECT target_id FROM relations WHERE kind='supersedes'))", tuple(spaces)):
-            rows[row['id']] = dict(row)
-        older = {}
-        for row in c.execute("SELECT source_id,target_id FROM relations WHERE kind='supersedes'"):
-            older[row[0]] = row[1]
-        files = {}
-        for mid, memory in rows.items():
-            if memory['status'] not in SHOWN:
-                continue
-            root, seen = mid, {mid}
-            while root in older and older[root] not in seen:
-                root = older[root]
-                seen.add(root)
-            first = rows.get(root)
-            memory['lineage'] = root
-            files[root] = (memory, first or memory)
-        return files
-
-    def _listing(self, c, space):
-        """`_lineages` for one space, reused for a few seconds. A sync plugin on depth 1 lists one folder at a
-        time (thousands of requests in a row) and each would otherwise rescan the whole space. Our own writes
-        clear it; an agent's save shows up within the window."""
-        cached = self.cache.get(space)
-        if cached and time.time() - cached[0] < LISTING_SECONDS:
-            return cached[1]
-        files = self._lineages(c, [space])
-        self.cache[space] = (time.time(), files)
-        return files
-
-    def _find(self, c, spaces, stem):
-        """The (current memory, first memory) pair for an id12, or None."""
-        low, high = 'mem_' + stem, 'mem_' + stem + 'g'
-        root = c.execute('SELECT * FROM memories WHERE id>=? AND id<?', (low, high)).fetchone()
-        if root is None or root['space'] not in spaces:
-            return None
-        head, seen = dict(root), {root['id']}
-        while True:
-            nxt = c.execute("SELECT m.* FROM relations r JOIN memories m ON m.id=r.source_id "
-                            "WHERE r.target_id=? AND r.kind='supersedes'", (head['id'],)).fetchone()
-            if nxt is None or nxt['id'] in seen:
-                break
-            head = dict(nxt)
-            seen.add(head['id'])
-        if head['status'] not in SHOWN:
-            return None
-        head['lineage'] = root['id']
-        return head, dict(root)
-
-    # -- WebDAV ---------------------------------------------------------------------------------
 
     def handle(self, method, path, headers, body, origin):
         """Serve one request. Returns (status, body, headers); body is str or bytes."""
@@ -177,99 +82,180 @@ class Files:
         parts = [unquote(p) for p in path.removeprefix('/dav').split('/') if p]
         if any(p in ('.', '..') or '\\' in p or '\x00' in p for p in parts):
             raise MemoryError('Invalid path', 400)
-        # Sync plugins keep a vault inside a folder named after it (Remotely Save: /dav/<vault name>/).
-        # A first folder that is not a space is that wrapper: the tree below it is the same one.
-        self.base = '/dav'
-        if parts and parts[0] not in spaces:
-            self.base += '/' + quote(parts.pop(0), safe='')
+        self.author = 'files:' + device['name']
         method = method.upper()
+        allow = {'DAV': '1', 'Allow': 'OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL', 'MS-Author-Via': 'DAV'}
         if method == 'OPTIONS':
-            return 200, '', {'DAV': '1', 'Allow': 'OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL',
-                             'MS-Author-Via': 'DAV'}
-        # Anything outside a space is not a memory: it goes to a small scratch area so a sync plugin's own
-        # test files and notes dropped in the vault root work, and never reach the agents.
-        scratch = bool(parts) and parts[0] not in spaces
+            return 200, '', allow
+        if not parts:
+            # The address itself: one folder to open. Remotely Save never lists this; Finder and Explorer do.
+            self.base = '/dav'
+            if method == 'PROPFIND':
+                return multistatus([self._entry('/dav/', True)] +
+                                   ([self._entry('/dav/wiki/', True)] if (headers.get('Depth') or 'infinity') != '0' else []))
+            return (201, '', {}) if method == 'MKCOL' else (405, 'Open a folder below this address', allow)
+        self.base = '/dav/' + quote(parts.pop(0), safe='')
+        if len(spaces) == 1:
+            return self.wiki(method, spaces[0], self.base, '/'.join(parts), headers, body, device)
+        if not parts:
+            if method == 'PROPFIND':
+                return self.root(spaces, headers.get('Depth') or 'infinity')
+            return (201, '', {}) if method == 'MKCOL' else (405, 'Open a space folder', allow)
+        if parts[0] in spaces:
+            return self.wiki(method, parts[0], f'{self.base}/{parts[0]}', '/'.join(parts[1:]), headers, body, device)
         if method == 'PROPFIND':
-            depth = headers.get('Depth') or 'infinity'
-            return self.scratch_propfind(parts, depth) if scratch else self.propfind(parts, depth, spaces, origin)
+            return self.scratch_propfind(parts, headers.get('Depth') or 'infinity')
         if method in ('GET', 'HEAD'):
-            return self.scratch_get(parts, method == 'HEAD') if scratch else self.get(parts, spaces, method == 'HEAD')
+            return self.scratch_get(parts, method == 'HEAD')
         if method == 'MKCOL':
-            # Folders in a space are implied by the memories inside them, so making one only has to say yes.
-            return self.scratch_mkcol(parts) if scratch else (201, '', {})
+            return self.scratch_mkcol(parts)
         if method == 'PUT':
-            return self.scratch_put(parts, body) if scratch else self.put(parts, body, device, spaces)
+            return self.scratch_put(parts, body)
         if method == 'DELETE':
-            return self.scratch_delete(parts) if scratch else self.delete(parts, device, spaces)
+            return self.scratch_delete(parts)
+        return 405, 'Method not supported', allow
+
+    def wiki(self, method, space, prefix, path, headers, body, device):
+        """One request against a space's wiki; `prefix` is the href of that wiki's root folder."""
+        self.prefix = prefix
+        if method == 'PROPFIND':
+            return self.propfind(space, path, headers.get('Depth') or 'infinity')
+        if method in ('GET', 'HEAD'):
+            return self.get(space, path, method == 'HEAD')
+        if method == 'MKCOL':
+            return self.mkcol(space, path)
+        if method == 'PUT':
+            return self.put(space, path, body)
+        if method == 'DELETE':
+            return self.delete(space, path, device)
         return 405, 'Method not supported', {'Allow': 'OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL'}
 
-    def _entry(self, href, collection, size=0, modified=None, etag=None):
+    # -- entries ------------------------------------------------------------------------------------------
+
+    def _entry(self, href, collection, size=0, modified=None, etag=None, kind=None):
         props = ('<D:resourcetype><D:collection/></D:resourcetype>' if collection else '<D:resourcetype/>')
         if not collection:
-            props += (f'<D:getcontentlength>{size}</D:getcontentlength><D:getcontenttype>text/markdown</D:getcontenttype>'
+            props += (f'<D:getcontentlength>{size}</D:getcontentlength><D:getcontenttype>{kind}</D:getcontenttype>'
                       f'<D:getetag>"{etag}"</D:getetag>')
         if modified:
             props += f'<D:getlastmodified>{modified}</D:getlastmodified>'
         return (f'<D:response><D:href>{escape(quote(href))}</D:href><D:propstat><D:prop>{props}</D:prop>'
                 '<D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
 
-    def propfind(self, parts, depth, spaces, origin):
-        if parts and parts[0] not in spaces:
-            return 404, '', {}
-        base = self.base
+    def _page_entry(self, space, page):
+        return self._entry(f'{self.prefix}/{page["path"]}', False, page['size'], http_date(page['updated_at']),
+                           f'{page["revision"]}-{page["size"]}', content_type(page['path']))
+
+    def _tree(self, c, space):
+        """(folders, pages) for a space: every folder that holds a page or was made empty, and every page."""
+        found = pages.list_pages(c, space)
+        folders = {row[0] for row in c.execute('SELECT path FROM wiki_folders WHERE space=?', (space,))}
+        for page in found:
+            segments = page['path'].split('/')[:-1]
+            folders.update('/'.join(segments[:n]) for n in range(1, len(segments) + 1))
+        return folders, found
+
+    def root(self, spaces, depth):
+        entries = [self._entry(self.base + '/', True)]
+        if depth != '0':
+            with self.store.connection(True) as c:
+                for space in spaces:
+                    entries.append(self._entry(f'{self.base}/{space}/', True))
+                    self.prefix = f'{self.base}/{space}'
+                    if depth == 'infinity':
+                        # One request for the whole tree: far faster for a sync plugin than one per folder.
+                        entries.extend(self._below(c, space, '', depth))
+                entries.extend(self._scratch_entries(c, [], depth))
+        return multistatus(entries)
+
+    def _below(self, c, space, prefix, depth):
+        folders, found = self._tree(c, space)
+        start = prefix + '/' if prefix else ''
         entries = []
-        with self.store.connection() as c:
-            if not parts:
-                entries.append(self._entry(base + '/', True))
-                if depth != '0':
-                    entries.extend(self._entry(f'{base}/{s}/', True) for s in spaces)
-                if depth == 'infinity':
-                    # One request for the whole tree: far faster for a sync plugin than a request per folder.
-                    for space in spaces:
-                        entries.extend(self._tree(self._listing(c, space), space, base)[1:])
-                if depth != '0':
-                    entries.extend(self._scratch_entries(c, [], depth))
-                return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(entries) + '</D:multistatus>', XML
-            files = self._listing(c, parts[0])
-        by_topic = {}
-        for memory, first in files.values():
-            by_topic.setdefault(topic_of(memory['key'] or first['key']), []).append((memory, first))
-        wanted_topic = parts[1].lower() if len(parts) > 1 and not FILE_ID.search(parts[1]) else None
-        if len(parts) > 2 and not FILE_ID.search(parts[-1]):
-            return 404, '', {}
-        if len(parts) > 1 and FILE_ID.search(parts[-1]):
-            found = self._file_for(files, parts[-1])
-            if not found:
-                return 404, '', {}
-            memory, first = found
-            entries.append(self._file_entry(base, parts[0], memory, first))
-        elif len(parts) == 1:
-            tree = self._tree(files, parts[0], base)
-            entries.extend(tree if depth == 'infinity' else [e for e in tree if '.md</D:href>' not in e] if depth != '0' else tree[:1])
-        else:
-            entries.append(self._entry(f'{base}/{parts[0]}/{wanted_topic}/', True))
-            if depth != '0':
-                for memory, first in by_topic.get(wanted_topic, []):
-                    entries.append(self._file_entry(base, parts[0], memory, first))
-        return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(entries) + '</D:multistatus>', XML
-
-    def _file_entry(self, base, space, memory, first):
-        text = render(memory).encode()
-        return self._entry(f'{base}/{space}/{topic_of(memory["key"] or first["key"])}/{file_name(first)}', False,
-                           len(text), http_date(memory['recorded_at']), memory['id'][4:16] + '-' + str(memory['revision']))
-
-    def _tree(self, files, space, base):
-        """The space folder, its topic folders, and every file, as PROPFIND entries (the space itself first)."""
-        by_topic = {}
-        for memory, first in files.values():
-            by_topic.setdefault(topic_of(memory['key'] or first['key']), []).append((memory, first))
-        entries = [self._entry(f'{base}/{space}/', True)]
-        for topic in sorted(by_topic):
-            entries.append(self._entry(f'{base}/{space}/{topic}/', True))
-            entries.extend(self._file_entry(base, space, m, f) for m, f in by_topic[topic])
+        for folder in sorted(folders):
+            if folder.startswith(start) and folder != prefix and (depth == 'infinity' or '/' not in folder[len(start):]):
+                entries.append(self._entry(f'{self.prefix}/{folder}/', True))
+        for page in found:
+            name = page['path']
+            if name.startswith(start) and (depth == 'infinity' or '/' not in name[len(start):]):
+                entries.append(self._page_entry(space, page))
         return entries
 
-    # -- scratch area: files that are not memories ---------------------------------------------------------
+    # -- the wiki ----------------------------------------------------------------------------------------
+
+    def propfind(self, space, path, depth):
+        with self.store.connection(True) as c:
+            if not path:
+                entries = [self._entry(f'{self.prefix}/', True)]
+                if depth != '0':
+                    entries += self._below(c, space, '', depth)
+                return multistatus(entries)
+            path = pages.clean_path(path)
+            stored = pages.raw(c, space, path)
+            if stored:
+                return multistatus([self._page_entry(space, stored[1])])
+            folders, _ = self._tree(c, space)
+            if path not in folders:
+                return 404, '', {}
+            entries = [self._entry(f'{self.prefix}/{path}/', True)]
+            if depth != '0':
+                entries += self._below(c, space, path, depth)
+            return multistatus(entries)
+
+    def get(self, space, path, head_only):
+        if not path:
+            return 404, '', {}
+        with self.store.connection() as c:
+            stored = pages.raw(c, space, pages.clean_path(path))
+        if stored is None:
+            return 404, 'No such file', {}
+        body, page = stored
+        return 200, b'' if head_only else body, {'Content-Type': content_type(path), 'ETag': f'"{page["revision"]}-{page["size"]}"',
+                                                 'Last-Modified': http_date(page['updated_at'])}
+
+    def mkcol(self, space, path):
+        if path:
+            with self.store.connection(True) as c:
+                c.execute('INSERT OR IGNORE INTO wiki_folders VALUES (?,?)', (space, pages.clean_path(path)))
+        return 201, '', {}
+
+    def put(self, space, path, body):
+        if not path:
+            raise MemoryError('Choose a file name', 400)
+        path = pages.clean_path(path)
+        if len(body) > MAX_UPLOAD_BYTES:
+            raise MemoryError('File exceeds 1 MB', 413)
+        if body[:len(OLD_MEMORY_FILE)] == OLD_MEMORY_FILE and b'\nlineage: "mem_' in body[:300]:
+            # A copy of a memory record from the old layout: the memory itself is still in the vault. Accept and
+            # drop it, so the plugin then sees it gone remotely and removes the local copy.
+            return 204, '', {}
+        private = any((path + '/').startswith(p) for p in PRIVATE_PREFIXES)
+        with self.store.connection(True) as c:
+            existed = pages.raw(c, space, path) is not None
+            # Obsidian's own settings change constantly; keeping 20 copies of each would only bloat the vault.
+            pages.write(c, space, path, bytes(body), self.author, require_revision=False, keep_history=not private)
+        return (204 if existed else 201), '', {}
+
+    def delete(self, space, path, device):
+        if not path:
+            raise MemoryError('A whole space cannot be deleted from a file client', 403)
+        path = pages.clean_path(path)
+        with self.store.connection(True) as c:
+            doomed = [p['path'] for p in pages.list_pages(c, space) if p['path'] == path or p['path'].startswith(path + '/')]
+            folders = c.execute('SELECT path FROM wiki_folders WHERE space=? AND (path=? OR path LIKE ?)',
+                                (space, path, path + '/%')).fetchall()
+            if not doomed and not folders:
+                return 404, '', {}
+        # A sync plugin that sees a folder vanish locally deletes remotely too. Slow that down; history keeps every page.
+        if len(doomed) > 1:
+            self.service.limit('dav-delete:' + device['id'], DELETES_PER_MINUTE)
+        with self.store.connection(True) as c:
+            for name in doomed:
+                pages.delete(c, space, name, self.author, keep_history=not any((name + '/').startswith(p) for p in PRIVATE_PREFIXES))
+            c.execute('DELETE FROM wiki_folders WHERE space=? AND (path=? OR path LIKE ?)', (space, path, path + '/%'))
+        return 204, '', {}
+
+    # -- scratch area: files above the spaces ------------------------------------------------------------
 
     def _scratch_rows(self, c):
         c.execute('CREATE TABLE IF NOT EXISTS dav_scratch (path TEXT PRIMARY KEY, body BLOB, modified TEXT)')
@@ -290,10 +276,11 @@ class Files:
                 if (path, is_file) in seen:
                     continue
                 seen.add((path, is_file))
-                href = f'{self.base}/{quote(path, safe="/")}' + ('' if is_file else '/')
+                href = f'{self.base}/{path}' + ('' if is_file else '/')
                 if is_file:
                     body, modified = rows[key]
-                    entries.append(self._entry(href, False, len(body), http_date(modified), f'{len(body)}-{modified}'))
+                    entries.append(self._entry(href, False, len(body), http_date(modified), f'{len(body)}-{modified}',
+                                               content_type(path)))
                 else:
                     entries.append(self._entry(href, True))
         return entries
@@ -304,14 +291,15 @@ class Files:
             rows = self._scratch_rows(c)
             if path in rows:
                 body, modified = rows[path]
-                one = [self._entry(f'{self.base}/{quote(path, safe="/")}', False, len(body), http_date(modified), f'{len(body)}-{modified}')]
+                one = [self._entry(f'{self.base}/{path}', False, len(body), http_date(modified), f'{len(body)}-{modified}',
+                                   content_type(path))]
             elif path + '/' in rows or any(k.startswith(path + '/') for k in rows):
-                one = [self._entry(f'{self.base}/{quote(path, safe="/")}/', True)]
+                one = [self._entry(f'{self.base}/{path}/', True)]
                 if depth != '0':
                     one += self._scratch_entries(c, parts, depth)
             else:
                 return 404, '', {}
-        return 207, '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + ''.join(one) + '</D:multistatus>', XML
+        return multistatus(one)
 
     def scratch_get(self, parts, head_only):
         with self.store.connection(True) as c:
@@ -319,25 +307,26 @@ class Files:
         if row is None:
             return 404, 'No such file', {}
         body, modified = row
-        return 200, b'' if head_only else bytes(body), {'Content-Type': 'application/octet-stream',
+        return 200, b'' if head_only else bytes(body), {'Content-Type': content_type(parts[-1]),
                                                         'ETag': f'"{len(body)}-{modified}"', 'Last-Modified': http_date(modified)}
 
     def scratch_mkcol(self, parts):
         with self.store.connection(True) as c:
-            rows = self._scratch_rows(c)
-            if len(rows) >= SCRATCH_FILES:
-                raise MemoryError('Too many files outside the memory folders', 413)
+            if len(self._scratch_rows(c)) >= SCRATCH_FILES:
+                raise MemoryError('Too many files outside the wiki', 413)
             c.execute('INSERT OR IGNORE INTO dav_scratch VALUES (?,?,?)', ('/'.join(parts) + '/', b'', now()))
         return 201, '', {}
 
     def scratch_put(self, parts, body):
+        if not parts:
+            raise MemoryError('Choose a file name', 400)
         if len(body) > MAX_SCRATCH_BYTES:
-            raise MemoryError('File is too large to keep outside the memory folders', 413)
+            raise MemoryError('File is too large to keep outside the wiki', 413)
         with self.store.connection(True) as c:
             rows = self._scratch_rows(c)
             path = '/'.join(parts)
             if path not in rows and len(rows) >= SCRATCH_FILES:
-                raise MemoryError('Too many files outside the memory folders', 413)
+                raise MemoryError('Too many files outside the wiki', 413)
             c.execute('INSERT OR REPLACE INTO dav_scratch VALUES (?,?,?)', (path, body, now()))
         return 201 if path not in rows else 204, '', {}
 
@@ -348,81 +337,3 @@ class Files:
             for key in doomed:
                 c.execute('DELETE FROM dav_scratch WHERE path=?', (key,))
         return (204 if doomed else 404), '', {}
-
-    def _file_for(self, files, name):
-        match = FILE_ID.search(name)
-        if not match:
-            return None
-        for root, pair in files.items():
-            if root[4:16] == match.group(1):
-                return pair
-        return None
-
-    def _located(self, c, parts, spaces):
-        if len(parts) < 2 or parts[0] not in spaces:
-            return None
-        match = FILE_ID.search(parts[-1])
-        return self._find(c, spaces, match.group(1)) if match else None
-
-    def get(self, parts, spaces, head_only):
-        with self.store.connection() as c:
-            found = self._located(c, parts, spaces)
-        if not found:
-            return 404, 'No such memory file', {}
-        memory, first = found
-        text = render(memory)
-        return 200, '' if head_only else text, {
-            'Content-Type': 'text/markdown; charset=utf-8',
-            'ETag': f'"{memory["id"][4:16]}-{memory["revision"]}"', 'Last-Modified': http_date(memory['recorded_at'])}
-
-    def put(self, parts, body, device, spaces):
-        if len(parts) < 2 or parts[0] not in spaces or not parts[-1].lower().endswith('.md') or parts[-1].startswith('.'):
-            raise MemoryError('Only markdown files inside a space can be saved', 403)
-        if len(parts) > 3:
-            raise MemoryError('Memory files live one folder deep: <space>/<topic>/<file>.md', 400)
-        if len(body) > MAX_FILE_BYTES:
-            raise MemoryError('File is too large for one memory', 413)
-        try:
-            fields, text = parse(body.decode('utf-8'))
-        except UnicodeDecodeError:
-            raise MemoryError('File must be UTF-8 text') from None
-        if not text.strip():
-            raise MemoryError('A memory cannot be empty; delete the file to forget it', 400)
-        principal = Principal(device['id'], tuple(device['spaces']))
-        self.cache.clear()
-        with self.store.connection() as c:
-            found = self._located(c, parts, spaces)
-        if found:
-            memory, _ = found
-            if text.strip() == memory['content'].strip():
-                return 204, '', {}
-            # Each correction is a new memory with a new id, so the id in the file's frontmatter says which
-            # version the editor started from. A copy of an older version must not overwrite a newer one.
-            if 'id' in fields and fields['id'] != memory['id']:
-                raise MemoryError('This memory changed after your copy was saved; reload the file', 409)
-            self.store.dispatch(principal, 'correct', {'id': memory['id'], 'revision': memory['revision'], 'content': text})
-            return 204, '', {}
-        kind = fields.get('kind') if fields.get('kind') in KINDS else 'fact'
-        payload = {'space': parts[0], 'content': text, 'kind': kind}
-        if isinstance(fields.get('key'), str) and fields['key'].strip():
-            payload['key'] = fields['key'].strip()
-        else:
-            # No key in the file: the path becomes the key, so the note keeps its folder when it comes back.
-            stem = clean(MARKDOWN.sub('', parts[-1]), 80)
-            topic = clean(parts[1], 40) if len(parts) > 2 else ''
-            payload['key'] = stem if topic in ('', '_unkeyed') else topic + '.' + stem
-        self.store.dispatch(principal, 'remember', payload)
-        return 201, '', {}
-
-    def delete(self, parts, device, spaces):
-        with self.store.connection() as c:
-            found = self._located(c, parts, spaces)
-        if not found:
-            return 404, '', {}
-        self.cache.clear()
-        # A sync plugin that sees a folder vanish locally deletes remotely too. Slow that down.
-        self.service.limit('dav-delete:' + device['id'], DELETES_PER_MINUTE)
-        principal = Principal(device['id'], tuple(device['spaces']))
-        preview = self.store.dispatch(principal, 'forget_preview', {'id': found[0]['id']})
-        self.store.dispatch(principal, 'forget', {'id': found[0]['id'], 'plan_token': preview['plan_token']})
-        return 204, '', {}
