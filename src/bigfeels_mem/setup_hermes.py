@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from . import cloud
 from .store import Store
 
 
@@ -25,7 +26,9 @@ def run_setup(data_dir, args):
     home = Path(args.hermes_home or os.environ.get('HERMES_HOME') or Path.home() / '.hermes').expanduser()
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    Store(data_dir / 'memory.sqlite')
+    # A directory paired in cloud-only mode holds no database; creating one would shadow the vault.
+    if not cloud.is_remote(data_dir):
+        Store(data_dir / 'memory.sqlite')
     profiles = args.profiles or _profiles(home)
     hermes = shutil.which('hermes') or 'hermes'
     commands = []

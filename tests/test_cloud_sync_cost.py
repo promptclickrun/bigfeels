@@ -322,3 +322,32 @@ class DurableObjectLimitTests(unittest.TestCase):
             self.assertIn(found['status'], ('ok', 'empty'))
             found = store.dispatch(P, 'search', {'query': 'preferences', 'budget': 4000})
             self.assertTrue(found['memories'])
+
+
+class RemoteSetupTests(unittest.TestCase):
+    def test_setup_does_not_create_a_database_in_a_cloud_only_directory(self):
+        import argparse
+        from bigfeels_mem.setup_hermes import run_setup
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            fake = FakeCloud(root)
+            self.addCleanup(fake.close)
+            directory = root / 'remote'
+            connect(directory, fake.url, PASSWORD, allow_local=True, remote=True)
+            run_setup(directory, argparse.Namespace(hermes_home=str(root / 'h'), profiles=['default'], apply=False))
+            self.assertFalse((directory / 'memory.sqlite').exists())
+
+    def test_recall_gives_up_quickly_but_saves_may_take_longer(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            fake = FakeCloud(root)
+            self.addCleanup(fake.close)
+            directory = root / 'remote'
+            connect(directory, fake.url, PASSWORD, allow_local=True, remote=True)
+            client = cloud.RemoteClient(directory, timeout=30)
+            seen = []
+            real = client.client.request
+            client.client.request = lambda path, payload=None, **kw: (seen.append((path, kw.get('timeout'))), real(path, payload, **kw))[1]
+            client.call('context', {'query': 'x', 'spaces': ['owner'], 'budget': 100})
+            client.call('remember', {'space': 'owner', 'content': 'A save'})
+            self.assertEqual([('/v1/context', cloud.RECALL_TIMEOUT_SECONDS), ('/v1/remember', 30)], seen)

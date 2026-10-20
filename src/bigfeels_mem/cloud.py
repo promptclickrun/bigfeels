@@ -20,6 +20,7 @@ CONFIG_NAME = 'cloud.json'
 PLAN_RECOMMENDATION = ('Workers Free can hold a small memory. Workers Paid ($5/month) is recommended for a large first upload '
                        'and more CPU headroom. Cloudflare bills your account directly; local-only use stays free.')
 IDLE_MAX_SECONDS = 300
+RECALL_TIMEOUT_SECONDS = 4
 
 
 class CloudClient:
@@ -156,7 +157,9 @@ class RemoteClient:
             return {'processed': 0}
         if not isinstance(payload, dict):
             raise ClientError('Request must be an object', 400)
-        return self.client.request('/v1/' + operation, payload, timeout=self.timeout)
+        # Recall runs in front of a chat turn: give up quickly and let the agent answer without memory.
+        wait = min(self.timeout, RECALL_TIMEOUT_SECONDS) if operation in ('context', 'search') else self.timeout
+        return self.client.request('/v1/' + operation, payload, timeout=wait)
 
     post = call
 
