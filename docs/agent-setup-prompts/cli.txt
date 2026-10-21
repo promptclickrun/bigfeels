@@ -1,0 +1,35 @@
+Set up this agent to use my existing bigfeels cloud memory through the standalone bigfeels-mem command line tool. Complete and verify the setup without changing this agent's runtime or unrelated configuration.
+
+Replace these values before you send this, then delete this line. If any value below still starts with YOUR_, EXPECTED_ or PASTE_, stop and ask me for it.
+
+Cloud URL: YOUR_CLOUD_URL
+Expected vault ID: EXPECTED_VAULT_ID
+One-time invitation: PASTE_FRESH_INVITE_CODE
+Authorized space: owner
+Repository: https://github.com/promptclickrun/bigfeels
+
+(Cloud URL is the https origin of my bigfeels Worker, with no path. The vault ID is the vault_id returned by GET YOUR_CLOUD_URL/v1/info. Make the invitation just now with "bigfeels-mem cloud invite --space owner" on a computer that is already connected. It works once and expires in ten minutes. Paste it only into this private conversation.)
+
+1. Send GET YOUR_CLOUD_URL/v1/info over HTTPS and confirm protocol 1 and that vault_id equals the expected vault ID. If it differs or nothing answers, stop and report. If I do not have a cloud vault yet, stop and point me to https://github.com/promptclickrun/bigfeels/blob/main/cloud/README.md. Do not deploy anything.
+
+2. Check whether bigfeels-mem is already installed and that "bigfeels-mem cloud join --help" lists --remote. If not, install the current default branch of the repository into an isolated environment: pipx install "git+https://github.com/promptclickrun/bigfeels.git", or uv tool install "git+https://github.com/promptclickrun/bigfeels.git", or a dedicated Python 3.11+ virtual environment. Do not pin an old commit, replace system Python, or install into a project. If none of pipx, uv or Python 3.11+ is available, stop and tell me which one is missing. Do not install system packages without asking me.
+
+3. Choose one private directory outside any project, readable only by me, for example ~/.local/share/bigfeels-remote on macOS or Linux. If "bigfeels-mem --data-dir DIRECTORY cloud status" already shows a connection to this vault, reuse it. Otherwise put the invitation in a temporary environment variable named BIGFEELS_PAIRING_SECRET for this one command only, and run:
+
+bigfeels-mem --data-dir DIRECTORY cloud join YOUR_CLOUD_URL --remote --space owner --name SHORT_NAME_FOR_THIS_AGENT_AND_HOST --secret-env BIGFEELS_PAIRING_SECRET
+
+Then remove the variable. Never put the invitation on a command line, in shell history or in logs. The file cloud.json in that directory holds the device token, so keep it owner-only (mode 0600 on Unix, or equivalent permissions elsewhere) and never print it.
+
+4. Verify with these commands, one at a time:
+
+bigfeels-mem --data-dir DIRECTORY status --space owner
+bigfeels-mem --data-dir DIRECTORY search bigfeels --space owner --budget 4000
+bigfeels-mem --data-dir DIRECTORY inspect RETURNED_MEMORY_ID --space owner
+
+If search returns nothing, say so. Do not create test records.
+
+5. Write the full path of bigfeels-mem and the --data-dir value into this agent's own supported notes or instructions, so later calls use them. Recall with search or context. Save durable facts only on purpose, with remember. This command line tool does not hook into the agent's conversation, so it never recalls or captures anything by itself.
+
+Rules: do not run init, create a local copy of the database, start a sync service, upload an old local store, or turn on capture, extraction or reranking. Keep private memory text and the device token out of your report.
+
+Report what was installed or configured, which checks passed, and any blocker. Do not stop at a plan.
