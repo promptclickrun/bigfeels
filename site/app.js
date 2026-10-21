@@ -31,18 +31,20 @@ function selectStep(button) {
   document.getElementById('demo-detail').textContent = example.detail;
 }
 controls.forEach(button => button.addEventListener('click', () => selectStep(button)));
-const copyButton = document.getElementById('copy-install');
-copyButton.addEventListener('click', async () => {
-  const code = document.getElementById('install-commands');
-  const status = document.getElementById('copy-status');
+document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {
+  const code = document.getElementById(button.dataset.copy);
+  const status = document.getElementById(button.dataset.copyStatus);
+  const noun = button.dataset.copyNoun;
   try {
     await navigator.clipboard.writeText(code.textContent);
-    status.textContent = 'Commands copied.';
+    status.textContent = noun + ' copied.';
   } catch {
+    const details = code.closest('details');
+    if (details) details.open = true;
     const range = document.createRange();
     range.selectNodeContents(code);
     const selection = window.getSelection();
     selection.removeAllRanges(); selection.addRange(range);
-    status.textContent = 'Copy was blocked. The commands are selected so you can copy them manually.';
+    status.textContent = 'Copy was blocked. The ' + noun.toLowerCase() + ' is selected so you can copy it manually.';
   }
-});
+}));

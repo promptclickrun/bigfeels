@@ -584,6 +584,33 @@ pre {
 .copy-status:not(:empty) {
   padding-bottom:18px
 }
+.agent-prompts {
+  margin-top:72px;
+  scroll-margin-top:24px
+}
+.agent-prompts h3 {
+  font-size:28px;
+  line-height:1.2;
+  max-width:640px
+}
+.agent-prompts > p {
+  max-width:640px;
+  margin-top:14px;
+  color:#cdbedc
+}
+.agent-prompts code {
+  overflow-wrap:anywhere
+}
+.prompt-block summary {
+  cursor:pointer;
+  padding:14px 24px;
+  font-size:13px;
+  color:var(--citron)
+}
+.prompt-block summary:focus-visible, .code-toolbar button:focus-visible {
+  outline:2px solid var(--citron);
+  outline-offset:2px
+}
 .install-bottom {
   display:flex;
   justify-content:space-between;
