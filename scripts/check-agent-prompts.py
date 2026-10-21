@@ -54,6 +54,8 @@ def check():
     assert 'Authorization: Bearer' in canonical['mcp'] and 'legacy SSE' in canonical['mcp']
     assert 'BIGFEELS_PAIRING_SECRET' in canonical['cli'] and '--remote' in canonical['cli'] and '--secret-env' in canonical['cli']
     assert 'memory.provider = bigfeels' in canonical['hermes'] and 'memory.bigfeels.auto_extract = false' in canonical['hermes']
+    # Hermes keeps the plugin out of its environment (python_runtime: external): no bigfeels-mem on PATH.
+    assert 'hermes bigfeels --data-dir DIRECTORY cloud join' in canonical['hermes'] and 'bigfeels-mem --data-dir' not in canonical['hermes']
     print('agent prompts: README and site match docs/agent-setup-prompts for', ', '.join(NAMES))
 
 

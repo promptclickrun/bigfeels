@@ -2,6 +2,10 @@ name: bigfeels
 version: 0.1.0
 description: "Optional Hermes adapter for the host-neutral bigfeels local memory engine."
 kind: exclusive
+# bigfeels has no dependencies and loads its bundled src/ directly, so it stays out of
+# Hermes' shared uv workspace: two profile copies would both declare `bigfeels-mem` and
+# break every plugin install. `hermes bigfeels` (cli.py) stands in for the console script.
+python_runtime: external
 requires_env: []
 hooks:
   - on_pre_compress

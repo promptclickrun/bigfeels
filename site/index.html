@@ -138,13 +138,7 @@ Plugin repository: https://github.com/promptclickrun/bigfeels
 
 2. Send GET YOUR_CLOUD_URL/v1/info over HTTPS and confirm protocol 1 and that vault_id equals the expected vault ID. If it differs or nothing answers, stop and report. If I do not have a cloud vault yet, stop and point me to https://github.com/promptclickrun/bigfeels/blob/main/cloud/README.md. Do not deploy anything.
 
-3. Use one private directory outside every profile home, readable only by me, for example ~/.local/share/bigfeels-remote. Joining needs the bigfeels-mem tool. If it is not installed, install the current default branch of the repository into an isolated environment with pipx or uv tool, using "git+https://github.com/promptclickrun/bigfeels.git". Do not replace system Python. If neither pipx nor uv nor Python 3.11+ is available, stop and tell me which is missing. If "bigfeels-mem --data-dir DIRECTORY cloud status" already shows a connection to this vault, reuse it. Otherwise put the invitation in a temporary environment variable named BIGFEELS_PAIRING_SECRET for this one command only, and run:
-
-bigfeels-mem --data-dir DIRECTORY cloud join YOUR_CLOUD_URL --remote --space owner --name SHORT_NAME_FOR_THIS_AGENT_AND_HOST --secret-env BIGFEELS_PAIRING_SECRET
-
-Then remove the variable. Never put the invitation on a command line, in shell history or in logs. Keep cloud.json owner-only and never print the device token.
-
-4. With "hermes config set", set these keys for this profile, using real booleans, integers and arrays:
+3. Use one private directory outside every profile home, readable only by me, for example ~/.local/share/bigfeels-remote. With "hermes config set", set these keys for this profile, using real booleans, integers and arrays:
 
 memory.provider = bigfeels
 memory.bigfeels.path = DIRECTORY (the absolute path)
@@ -156,6 +150,12 @@ memory.bigfeels.auto_extract = false
 memory.bigfeels.budget = 4000
 
 Make sure the plugin is enabled and found by this profile. Keep built-in memory files and unrelated settings as they are.
+
+4. Join with the plugin's own command, hermes bigfeels, which runs the bigfeels-mem tool bundled with the plugin. Hermes offers it once memory.provider is bigfeels, so nothing else needs installing; run it for this profile (add -p PROFILE_NAME after hermes when this is not the default profile). If "hermes bigfeels --data-dir DIRECTORY cloud status" already shows a connection to this vault, reuse it. Otherwise put the invitation in a temporary environment variable named BIGFEELS_PAIRING_SECRET for this one command only, and run:
+
+hermes bigfeels --data-dir DIRECTORY cloud join YOUR_CLOUD_URL --remote --space owner --name SHORT_NAME_FOR_THIS_AGENT_AND_HOST --secret-env BIGFEELS_PAIRING_SECRET
+
+Then remove the variable. Never put the invitation on a command line, in shell history or in logs. Keep cloud.json owner-only and never print the device token.
 
 5. Activate it. A running Hermes process loads its memory provider at start, so restart or reload only the process that serves this profile, through its supported command. I authorize that one restart on this machine. Do not assume a restriction that is not actually in force here, and name the exact rule if one blocks you. If your own turn runs inside that process, use an independent controller, or give me the exact command to run. Then confirm the new process is healthy and has the bigfeels tools. An open conversation can keep its old tool list, so check with a fresh one.
 

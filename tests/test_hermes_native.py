@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import os
 import shutil
@@ -380,6 +381,53 @@ assert sys.modules['bigfeels_mem'] is old_package
             timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_profile_copies_stay_out_of_the_hermes_dependency_workspace(self) -> None:
+        # Hermes adds every plugin with a pyproject to one uv workspace under [project].name,
+        # so two profiles holding real-folder copies both declared `bigfeels-mem` and every
+        # later `uv lock` failed. python_runtime: external is what keeps a plugin out.
+        try:
+            from pm.plugin_declarations import read_python_declaration
+        except ImportError:
+            # No Hermes checkout: check the manifest key Hermes' declaration reader honors.
+            import yaml
+
+            manifest = yaml.safe_load((ROOT / "plugin.yaml").read_text(encoding="utf-8"))
+            self.assertEqual(manifest.get("python_runtime"), "external")
+            return
+        for profile in ("default", "cloned"):
+            copied = Path(self.temp.name) / profile / "bigfeels"
+            shutil.copytree(ROOT, copied, ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__", "*.pyc"))
+            declaration = read_python_declaration(copied)
+            self.assertIsNotNone(declaration.pyproject)
+            self.assertFalse(declaration.is_member)
+
+    def test_hermes_bigfeels_command_runs_the_bundled_cli(self) -> None:
+        import argparse
+
+        copied = Path(self.temp.name) / "plugins" / "bigfeels"
+        shutil.copytree(ROOT, copied, ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__", "*.pyc"))
+        spec = importlib.util.spec_from_file_location("_bigfeels_hermes_cli", copied / "cli.py")
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        # Mirrors Hermes' _attach_plugin_cli_command: `hermes <provider>` with set_defaults(func=...).
+        parser = argparse.ArgumentParser(prog="hermes")
+        subparser = parser.add_subparsers(dest="command").add_parser("bigfeels")
+        cli.register_cli(subparser)
+        subparser.set_defaults(func=cli.bigfeels_command)
+
+        passthrough = parser.parse_args(["bigfeels", "--data-dir", "d", "cloud", "join", "URL", "--remote", "--help"])
+        self.assertEqual(passthrough.bigfeels_args, ["cloud", "join", "URL", "--remote", "--help"])
+
+        # An older bigfeels_mem on the caller's path must not shadow the bundled source.
+        shadow = Path(self.temp.name) / "shadow" / "bigfeels_mem"
+        shadow.mkdir(parents=True)
+        (shadow / "__init__.py").write_text("raise ImportError('stale bigfeels_mem')\n", encoding="utf-8")
+        data_dir = Path(self.temp.name) / "data with spaces"
+        args = parser.parse_args(["bigfeels", "--data-dir", str(data_dir), "init"])
+        with patch.dict(os.environ, {"PYTHONPATH": str(shadow.parent)}):
+            self.assertEqual(args.func(args), 0)
+        self.assertTrue((data_dir / "memory.sqlite").is_file())
 
 
 if __name__ == "__main__":
