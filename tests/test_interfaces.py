@@ -372,6 +372,7 @@ const forget = card.children[3].children[2];
             {f'memory_{name}' for name in (
                 'observe', 'remember', 'context', 'search', 'inspect', 'correct',
                 'forget_preview', 'forget', 'process', 'status', 'export',
+                'wiki_search', 'wiki_read', 'wiki_list', 'wiki_write',
             )},
         )
         remember = next(tool for tool in tools if tool['name'] == 'memory_remember')

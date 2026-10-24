@@ -1,9 +1,12 @@
 """Sync cost and recovery behavior, through the real client against an in-process cloud."""
+import re
 import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
 
+from bigfeels_mem.cloud_service import CloudService
+from bigfeels_mem.store import MemoryError as StoreError
 from bigfeels_mem import cloud, sync
 from bigfeels_mem.cloud import BackgroundSync, connect, resync, sync_once
 from bigfeels_mem.store import Principal, Store
@@ -405,3 +408,161 @@ class BackupTests(unittest.TestCase):
 
         with self.assertRaises(cloud.ClientError):
             cloud._pull_with_retry(Denied(), 0)
+
+
+def _files_fixture(test, spaces=('owner',)):
+    from bigfeels_mem.cloud_files import Files
+    directory = tempfile.TemporaryDirectory()
+    test.addCleanup(directory.cleanup)
+    store = Store(Path(directory.name) / 'v.sqlite')
+    service = CloudService(store, PASSWORD, list(spaces))
+    with store.connection(True) as c:
+        token = service.mint(c, 'Obsidian', list(spaces))['token']
+    files = Files(store, service)
+
+    def call(method, path, body=b'', depth='1', auth=None):
+        headers = {'Authorization': auth or 'Bearer ' + token, 'Depth': depth}
+        return files.handle(method, path, headers, body, 'https://x')
+    return store, call, token
+
+
+def _hrefs(xml):
+    return re.findall(r'<D:href>([^<]+)</D:href>', xml)
+
+
+class WikiPagesTests(unittest.TestCase):
+    """The shared wiki an agent edits: revisions, history, search, spaces."""
+
+    def test_agents_cannot_overwrite_each_others_edits(self):
+        store = Store(Path(tempfile.mkdtemp()) / 'v.sqlite')
+        self.addCleanup(lambda: store.path.unlink(missing_ok=True))
+        alfie, jax = Principal('alfie', ('owner',)), Principal('jax', ('owner',))
+        made = store.dispatch(alfie, 'wiki_write', {'path': 'entities/colt.md', 'content': '# Colt', 'base_revision': 0})
+        self.assertEqual(1, made['revision'])
+        read = store.dispatch(jax, 'wiki_read', {'path': 'entities/colt.md'})
+        store.dispatch(alfie, 'wiki_write', {'path': 'entities/colt.md', 'content': '# Colt\nAlfie edit', 'base_revision': 1})
+        with self.assertRaises(StoreError) as raised:
+            store.dispatch(jax, 'wiki_write', {'path': 'entities/colt.md', 'content': '# Colt\nJax edit', 'base_revision': read['revision']})
+        self.assertEqual(409, raised.exception.status)
+        self.assertIn('Alfie edit', store.dispatch(jax, 'wiki_read', {'path': 'entities/colt.md'})['content'])
+        self.assertEqual([1], [v['revision'] for v in store.dispatch(jax, 'wiki_history', {'path': 'entities/colt.md'})['versions']])
+        self.assertEqual('entities/colt.md', store.dispatch(jax, 'wiki_search', {'query': 'alfie edit'})['pages'][0]['path'])
+        with self.assertRaises(StoreError):
+            store.dispatch(jax, 'wiki_list', {'space': 'private'})
+
+    def test_secrets_are_redacted_and_paths_are_checked(self):
+        store = Store(Path(tempfile.mkdtemp()) / 'v.sqlite')
+        self.addCleanup(lambda: store.path.unlink(missing_ok=True))
+        alfie = Principal('alfie', ('owner',))
+        store.dispatch(alfie, 'wiki_write', {'path': 'n.md', 'content': 'api_key = sk-abcdefghijklmnopqrstuv', 'base_revision': 0})
+        self.assertNotIn('sk-abc', store.dispatch(alfie, 'wiki_read', {'path': 'n.md'})['content'])
+        for bad in ('../x.md', '', 'a/../../b'):
+            with self.assertRaises(StoreError):
+                store.dispatch(alfie, 'wiki_write', {'path': bad, 'content': 'x', 'base_revision': 0})
+
+
+class WikiFilesTests(unittest.TestCase):
+    """The wiki over WebDAV, as Remotely Save drives it: /dav/<vault name>/<page path>."""
+
+    def test_vault_root_is_the_wiki_and_memories_are_not_files(self):
+        store, call, _ = _files_fixture(self)
+        store.dispatch(P, 'remember', {'space': 'owner', 'content': 'An atomic memory', 'key': 'k.one'})
+        store.dispatch(P, 'wiki_write', {'path': 'index.md', 'content': '# Index\n- [[colt]]', 'base_revision': 0})
+        store.dispatch(P, 'wiki_write', {'path': 'entities/colt.md', 'content': '# Colt', 'base_revision': 0})
+        status, xml, _ = call('PROPFIND', '/dav/bigfeels/', depth='infinity')
+        self.assertEqual(207, status)
+        self.assertEqual({'/dav/bigfeels/', '/dav/bigfeels/entities/', '/dav/bigfeels/entities/colt.md', '/dav/bigfeels/index.md'},
+                         set(_hrefs(xml)))
+        self.assertEqual({'/dav/bigfeels/', '/dav/bigfeels/entities/', '/dav/bigfeels/index.md'},
+                         set(_hrefs(call('PROPFIND', '/dav/bigfeels/', depth='1')[1])))
+        self.assertEqual(b'# Colt', call('GET', '/dav/bigfeels/entities/colt.md')[1])
+
+    def test_obsidian_edits_create_and_delete_pages_with_history(self):
+        store, call, _ = _files_fixture(self)
+        self.assertEqual(201, call('MKCOL', '/dav/bigfeels/concepts/')[0])
+        self.assertIn('/dav/bigfeels/concepts/', _hrefs(call('PROPFIND', '/dav/bigfeels/', depth='1')[1]))
+        self.assertEqual(201, call('PUT', '/dav/bigfeels/concepts/tea.md', b'Likes tea')[0])
+        self.assertEqual(204, call('PUT', '/dav/bigfeels/concepts/tea.md', b'Likes green tea')[0])
+        page = store.dispatch(P, 'wiki_read', {'path': 'concepts/tea.md'})
+        self.assertEqual(('Likes green tea', 2), (page['content'], page['revision']))
+        self.assertTrue(page['updated_by'].startswith('files:Obsidian'))
+        self.assertEqual(201, call('PUT', '/dav/bigfeels/assets/pic.png', b'\x89PNG\x00\xff')[0])
+        self.assertEqual(b'\x89PNG\x00\xff', call('GET', '/dav/bigfeels/assets/pic.png')[1])
+        self.assertEqual(204, call('DELETE', '/dav/bigfeels/concepts/')[0])
+        self.assertEqual(404, call('GET', '/dav/bigfeels/concepts/tea.md')[0])
+        versions = store.dispatch(P, 'wiki_history', {'path': 'concepts/tea.md'})['versions']
+        self.assertEqual([3, 2, 1], [v['revision'] for v in versions])
+        self.assertTrue(versions[0]['deleted'])
+
+    def test_remotely_save_connection_check_leaves_nothing_behind(self):
+        store, call, _ = _files_fixture(self)
+        self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/', depth='0')[0])
+        self.assertEqual(201, call('MKCOL', '/dav/bigfeels/rs-test-folder-abc/')[0])
+        self.assertEqual(201, call('PUT', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz', bytes(100))[0])
+        self.assertEqual(204, call('PUT', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz', bytes(200))[0])
+        self.assertEqual(bytes(200), call('GET', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz')[1])
+        self.assertEqual(204, call('DELETE', '/dav/bigfeels/rs-test-folder-abc/rs-test-file-xyz')[0])
+        self.assertEqual(204, call('DELETE', '/dav/bigfeels/rs-test-folder-abc/')[0])
+        self.assertEqual(['/dav/bigfeels/'], _hrefs(call('PROPFIND', '/dav/bigfeels/', depth='infinity')[1]))
+        with store.connection() as c:
+            self.assertEqual(0, c.execute('SELECT COUNT(*) FROM wiki_history').fetchone()[0])
+
+    def test_files_from_the_old_memory_layout_are_not_pushed_back(self):
+        store, call, _ = _files_fixture(self)
+        old = b'---\nid: "mem_5e2e9e01e1554f35a37c1e571c4ac99f"\nlineage: "mem_5e2e9e01e1554f35a37c1e571c4ac99f"\n---\nx'
+        self.assertEqual(204, call('PUT', '/dav/bigfeels/owner/0752db2/x--5e2e9e01e155.md', old)[0])
+        self.assertEqual([], store.dispatch(P, 'wiki_list', {})['pages'])
+
+    def test_login_is_required_and_obsidian_settings_keep_no_history(self):
+        store, call, token = _files_fixture(self)
+        status, _, headers = call('PROPFIND', '/dav/bigfeels/', auth='Basic bm9wZTpub3Bl')
+        self.assertEqual(401, status)
+        self.assertIn('Basic', headers['WWW-Authenticate'])
+        import base64
+        basic = 'Basic ' + base64.b64encode(b'bigfeels:' + token.encode()).decode()
+        self.assertEqual(207, call('PROPFIND', '/dav/bigfeels/', auth=basic)[0])
+        for _ in range(3):
+            call('PUT', '/dav/bigfeels/.obsidian/workspace.json', b'{"n":%d}' % _)
+        self.assertEqual([], store.dispatch(P, 'wiki_history', {'path': '.obsidian/workspace.json'})['versions'])
+        for path in ('/dav/bigfeels/../x.md',):
+            with self.assertRaises(StoreError):
+                call('PUT', path, b'text')
+
+    def test_a_login_with_several_spaces_gets_one_folder_per_space(self):
+        store, call, _ = _files_fixture(self, spaces=('owner', 'family'))
+        Store.dispatch(store, Principal('t', ('family',)), 'wiki_write', {'space': 'family', 'path': 'groceries.md', 'content': 'Milk', 'base_revision': 0})
+        hrefs = set(_hrefs(call('PROPFIND', '/dav/bigfeels/', depth='infinity')[1]))
+        self.assertTrue({'/dav/bigfeels/owner/', '/dav/bigfeels/family/', '/dav/bigfeels/family/groceries.md'} <= hrefs)
+        self.assertEqual(b'Milk', call('GET', '/dav/bigfeels/family/groceries.md')[1])
+
+
+class PageCommandTests(unittest.TestCase):
+    """`cloud page` lets a scheduled agent edit the wiki from a terminal, with the same revision rule."""
+
+    def test_write_read_list_search_and_stale_revision(self):
+        import io
+        import json
+        from bigfeels_mem.cli import main
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            fake = FakeCloud(root)
+            self.addCleanup(fake.close)
+            directory = root / 'remote'
+            connect(directory, fake.url, PASSWORD, allow_local=True, remote=True)
+            draft = root / 'page.md'
+            draft.write_text('# Tea\nGreen tea in the morning.')
+
+            def run(*argv):
+                out = io.StringIO()
+                main(['--data-dir', str(directory), 'cloud', 'page', *argv], stdout=out, stderr=io.StringIO())
+                return json.loads(out.getvalue())
+            self.assertEqual(1, run('write', 'concepts/tea.md', str(draft), '--base-revision', '0', '--agent', 'Dreaming')['revision'])
+            page = run('read', 'concepts/tea.md')
+            self.assertIn('Green tea', page['content'])
+            self.assertTrue(page['updated_by'].endswith('/Dreaming'))
+            self.assertEqual(['concepts/tea.md'], [p['path'] for p in run('list', 'concepts')['pages']])
+            self.assertEqual('concepts/tea.md', run('search', 'green tea')['pages'][0]['path'])
+            errors = io.StringIO()
+            code = main(['--data-dir', str(directory), 'cloud', 'page', 'write', 'concepts/tea.md', str(draft), '--base-revision', '0'],
+                        stdout=io.StringIO(), stderr=errors)
+            self.assertEqual((1, 409), (code, json.loads(errors.getvalue())['status']))

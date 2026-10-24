@@ -112,6 +112,48 @@ class RuntimeTests(unittest.TestCase):
         preview = remote.request('/v1/forget_preview', {'id': fresh['id']})
         remote.request('/v1/forget', {'id': fresh['id'], 'plan_token': preview['plan_token']})
         self.assertGreaterEqual(remote.request('/v1/info')['head'], before)
+        # The shared wiki over WebDAV, through the real Worker route, the way Remotely Save drives it.
+        token = remote.token
+        def dav(method, path, body=None, headers=None):
+            request = urllib.request.Request(url + path, data=body, method=method,
+                                             headers={'Authorization': 'Bearer ' + token, **(headers or {})})
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    return response.status, response.read()
+            except urllib.error.HTTPError as error:
+                text = error.read()
+                error.close()
+                return error.code, text
+        self.assertEqual(201, dav('MKCOL', '/dav/bigfeels/rs-test-folder-1/')[0])
+        self.assertEqual(201, dav('PUT', '/dav/bigfeels/rs-test-folder-1/rs-test-file-1', bytes(100))[0])
+        self.assertEqual(204, dav('PUT', '/dav/bigfeels/rs-test-folder-1/rs-test-file-1', bytes(200))[0])
+        self.assertEqual(bytes(200), dav('GET', '/dav/bigfeels/rs-test-folder-1/rs-test-file-1')[1])
+        self.assertEqual(204, dav('DELETE', '/dav/bigfeels/rs-test-folder-1/')[0])
+        page = 'Runtime wiki page ' + uuid.uuid4().hex
+        self.assertEqual(201, dav('PUT', '/dav/bigfeels/entities/runtime.md', page.encode())[0])
+        status, listing = dav('PROPFIND', '/dav/bigfeels/', headers={'Depth': 'infinity'})
+        self.assertEqual(207, status)
+        self.assertIn(b'/dav/bigfeels/entities/runtime.md', listing)
+        self.assertNotIn(b'mem_', listing, 'atomic memories are not files')
+        self.assertEqual(page.encode(), dav('GET', '/dav/bigfeels/entities/runtime.md')[1])
+        agent = remote.request('/v1/wiki_read', {'path': 'entities/runtime.md'})
+        self.assertEqual(page, agent['content'])
+        edited = remote.request('/v1/wiki_write', {'path': 'entities/runtime.md', 'content': page + ' edited',
+                                                   'base_revision': agent['revision'], 'agent': 'runtime'})
+        self.assertEqual(agent['revision'] + 1, edited['revision'])
+        self.assertEqual((page + ' edited').encode(), dav('GET', '/dav/bigfeels/entities/runtime.md')[1])
+        self.assertEqual(204, dav('DELETE', '/dav/bigfeels/entities/runtime.md')[0])
+        # Obsidian's mobile app sends an Origin that varies by platform; it must not be refused.
+        for origin in ('app://obsidian.md', 'capacitor://localhost', 'https://localhost', 'ionic://localhost'):
+            status, _ = dav('PROPFIND', '/dav/bigfeels/', headers={'Depth': '0', 'Origin': origin})
+            self.assertEqual((origin, 207), (origin, status))
+        # Without a login the route answers 401 and asks for Basic credentials.
+        try:
+            urllib.request.urlopen(urllib.request.Request(url + '/dav/bigfeels/', method='PROPFIND'))
+            self.fail('files must require a login')
+        except urllib.error.HTTPError as error:
+            self.assertEqual((401, True), (error.code, 'Basic' in (error.headers.get('WWW-Authenticate') or '')))
+            error.close()
         # A gzip request body is accepted, and an oversized one is refused before it is parsed.
         body = gzip.compress(json.dumps({'protocol': 1, 'changes': []}).encode())
         request = urllib.request.Request(url + '/v1/sync/push', data=body, method='POST', headers={

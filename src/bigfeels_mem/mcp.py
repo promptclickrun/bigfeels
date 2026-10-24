@@ -126,6 +126,32 @@ TOOLS = (
         'inputSchema': _object({}),
     },
     {
+        'name': 'memory_wiki_search',
+        'description': ('Search the shared wiki: curated markdown pages every agent and the owner maintain. '
+                        'Start with index.md, which catalogs every page.'),
+        'inputSchema': _object({'query': {'type': 'string', 'minLength': 1, 'maxLength': 2000}, 'space': SPACE}, ['query']),
+    },
+    {
+        'name': 'memory_wiki_read',
+        'description': 'Read one wiki page by path (index.md, SCHEMA.md, entities/name.md). Returns text and revision.',
+        'inputSchema': _object({'path': {'type': 'string', 'minLength': 1, 'maxLength': 500}, 'space': SPACE}, ['path']),
+    },
+    {
+        'name': 'memory_wiki_list',
+        'description': 'List wiki pages, optionally under a folder.',
+        'inputSchema': _object({'prefix': {'type': 'string', 'maxLength': 500}, 'space': SPACE}),
+    },
+    {
+        'name': 'memory_wiki_write',
+        'description': ('Create or replace a wiki page with complete markdown, following SCHEMA.md. Pass the revision '
+                        'you read as base_revision (0 for a new page); a stale one is refused. Update index.md and log.md.'),
+        'inputSchema': _object({'path': {'type': 'string', 'minLength': 1, 'maxLength': 500},
+                                'content': {'type': 'string', 'minLength': 1, 'maxLength': 1000000},
+                                'base_revision': {'type': 'integer', 'minimum': 0},
+                                'agent': {'type': 'string', 'maxLength': 100}, 'space': SPACE},
+                               ['path', 'content', 'base_revision']),
+    },
+    {
         'name': 'memory_export',
         'description': 'Export all evidence and memories in the credential’s allowed spaces.',
         'inputSchema': _object({}),

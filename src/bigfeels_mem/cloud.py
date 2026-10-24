@@ -272,6 +272,41 @@ def backup(data_dir, target):
     return {'status': 'backed_up', 'path': str(target), 'pages': pages, 'rows': rows, **counts}
 
 
+def push_wiki(data_dir, folder, *, replace=False):
+    """Upload a local markdown wiki (an Obsidian vault folder) into the shared wiki, page by page.
+
+    Hidden folders (.git, .obsidian) and files over the page limit are skipped. An existing page is left alone
+    unless `replace`; replacing keeps the old text in page history.
+    """
+    from . import pages
+    root = Path(folder).expanduser()
+    if not root.is_dir():
+        raise ValueError('Wiki folder does not exist')
+    _, client = configured_client(data_dir)
+    existing = {p['path']: p['revision'] for p in client.request('/v1/wiki_list', {})['pages']}
+    created, replaced, skipped = [], [], []
+    for path in sorted(p for p in root.rglob('*') if p.is_file()):
+        relative = path.relative_to(root).as_posix()
+        if any(part.startswith('.') for part in relative.split('/')) or path.stat().st_size > pages.MAX_PAGE_BYTES:
+            skipped.append(relative)
+            continue
+        try:
+            text = path.read_text('utf-8')
+        except UnicodeDecodeError:
+            skipped.append(relative)
+            continue
+        if not text.strip():
+            skipped.append(relative)
+            continue
+        if relative in existing and not replace:
+            skipped.append(relative)
+            continue
+        client.request('/v1/wiki_write', {'path': relative, 'content': text, 'base_revision': existing.get(relative, 0),
+                                          'agent': 'wiki-push'})
+        (replaced if relative in existing else created).append(relative)
+    return {'status': 'pushed', 'created': len(created), 'replaced': len(replaced), 'skipped': skipped}
+
+
 def resync(store, config):
     """Forget what is known about the cloud and replay everything: the safe answer to a restored backup.
 

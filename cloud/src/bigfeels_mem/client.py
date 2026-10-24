@@ -9,6 +9,7 @@ import urllib.request
 OPERATIONS = frozenset({
     'observe', 'remember', 'context', 'search', 'inspect', 'correct',
     'forget_preview', 'forget', 'process', 'status', 'export',
+    'wiki_list', 'wiki_read', 'wiki_search', 'wiki_history', 'wiki_write', 'wiki_delete',
 })
 MAX_RESPONSE_BYTES = 16_000_000
 

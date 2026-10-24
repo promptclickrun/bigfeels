@@ -15,6 +15,7 @@ CONTENT = {"type": "string", "minLength": 1, "maxLength": 16000}
 IDENTIFIER = {"type": "string", "minLength": 1, "maxLength": 500}
 PLAN_TOKEN = {"type": "string", "minLength": 1, "maxLength": 2000}
 TIMESTAMP = {"type": "string", "description": "ISO-8601 timestamp with timezone"}
+WIKI_PATH = {"type": "string", "minLength": 1, "maxLength": 500}
 
 
 def _object(
@@ -144,6 +145,52 @@ _SCHEMAS = (
         ),
     },
     {
+        "name": "bigfeels_wiki_search",
+        "description": (
+            "Search the shared wiki: curated markdown pages (people, projects, concepts, decisions) that every "
+            "agent and the owner maintain together and the owner reads in Obsidian. Prefer it over memory search "
+            "for anything with a page. Start with index.md, which catalogs every page."
+        ),
+        "parameters": _object({"query": {"type": "string", "minLength": 1, "maxLength": 2000}, "space": SPACE}, ("query",)),
+    },
+    {
+        "name": "bigfeels_wiki_read",
+        "description": (
+            "Read one wiki page by path, such as index.md, SCHEMA.md or entities/colt-coan.md. Returns its text "
+            "and revision; pass that revision to bigfeels_wiki_write to change the page."
+        ),
+        "parameters": _object({"path": WIKI_PATH, "space": SPACE}, ("path",)),
+    },
+    {
+        "name": "bigfeels_wiki_list",
+        "description": "List wiki pages, optionally under a folder such as entities.",
+        "parameters": _object({"prefix": {"type": "string", "maxLength": 500}, "space": SPACE}),
+    },
+    {
+        "name": "bigfeels_wiki_write",
+        "description": (
+            "Create or replace a wiki page with complete markdown. Follow SCHEMA.md (frontmatter, [[wikilinks]], "
+            "one page per entity or concept), add new pages to index.md, and append a line to log.md. To change an "
+            "existing page, pass the revision you read as base_revision; a stale revision is refused so another "
+            "agent's edit is never lost. Use base_revision 0 for a new page. Never store secrets."
+        ),
+        "parameters": _object(
+            {
+                "path": WIKI_PATH,
+                "content": {"type": "string", "minLength": 1, "maxLength": 1000000},
+                "base_revision": {"type": "integer", "minimum": 0},
+                "agent": {"type": "string", "maxLength": 100, "description": "Your agent name, shown in page history."},
+                "space": SPACE,
+            },
+            ("path", "content", "base_revision"),
+        ),
+    },
+    {
+        "name": "bigfeels_wiki_delete",
+        "description": "Remove a wiki page (its last version stays in history). Also update index.md and log.md.",
+        "parameters": _object({"path": WIKI_PATH, "agent": {"type": "string", "maxLength": 100}, "space": SPACE}, ("path",)),
+    },
+    {
         "name": "bigfeels_status",
         "description": (
             "Read scoped counts, queue state, backlog age, retry timing, safe processing failures, "
@@ -161,6 +208,11 @@ _OPERATIONS = {
     "bigfeels_forget_preview": "forget_preview",
     "bigfeels_forget": "forget",
     "bigfeels_status": "status",
+    "bigfeels_wiki_search": "wiki_search",
+    "bigfeels_wiki_read": "wiki_read",
+    "bigfeels_wiki_list": "wiki_list",
+    "bigfeels_wiki_write": "wiki_write",
+    "bigfeels_wiki_delete": "wiki_delete",
 }
 _ID_OPERATIONS = frozenset(
     {
@@ -221,6 +273,11 @@ def _request_error(name: str, error: Exception) -> str:
             code="not_found",
         )
     message = str(error)
+    if name.startswith("bigfeels_wiki_") and type(status) is int and status in {404, 409, 413}:
+        reasons = {404: "No such wiki page.",
+                   409: "The page changed or does not exist as expected; read it again and retry with its revision.",
+                   413: "The page is too large or the wiki is full."}
+        return _error(reasons[status], code={404: "not_found", 409: "conflict", 413: "too_large"}[status])
     if type(status) is int and status == 400 and message in _VALIDATION_MESSAGES:
         return _error(message + ".", code="invalid_request")
     return _error("Memory service request failed.")
@@ -261,6 +318,12 @@ def _scoped_payload(
         ):
             raise PermissionError
     elif name == "bigfeels_remember":
+        requested = payload.get("space")
+        if requested is None:
+            payload["space"] = write_space
+        elif not isinstance(requested, str) or requested not in allowed:
+            raise PermissionError
+    elif name.startswith("bigfeels_wiki_"):
         requested = payload.get("space")
         if requested is None:
             payload["space"] = write_space

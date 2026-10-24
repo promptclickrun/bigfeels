@@ -34,6 +34,16 @@ CLAIMS_INDEX_STATEMENTS = (
     'CREATE INDEX IF NOT EXISTS claims_digest ON claims(digest)',
 )
 
+# The shared wiki (see pages.py). Additive: stores made before it gain the tables on open.
+WIKI_STATEMENTS = (
+    'CREATE TABLE IF NOT EXISTS wiki_pages (space TEXT NOT NULL, path TEXT NOT NULL, body BLOB NOT NULL, '
+    'revision INTEGER NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(space, path))',
+    'CREATE TABLE IF NOT EXISTS wiki_history (space TEXT NOT NULL, path TEXT NOT NULL, revision INTEGER NOT NULL, '
+    'body BLOB, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(space, path, revision))',
+    # Empty folders a markdown client made; folders that hold pages need no row.
+    'CREATE TABLE IF NOT EXISTS wiki_folders (space TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY(space, path))',
+)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 INSERT OR IGNORE INTO metadata VALUES ('schema_version','1');
@@ -74,7 +84,7 @@ CREATE INDEX IF NOT EXISTS evidence_space ON evidence(space);
 CREATE INDEX IF NOT EXISTS memories_space ON memories(space,status);
 CREATE INDEX IF NOT EXISTS supports_evidence ON supports(evidence_id);
 CREATE INDEX IF NOT EXISTS relations_target ON relations(target_id,kind);
-""" + ''.join(statement + ';\n' for statement in CLAIMS_INDEX_STATEMENTS + RECALL_INDEX_STATEMENTS)
+""" + ''.join(statement + ';\n' for statement in CLAIMS_INDEX_STATEMENTS + WIKI_STATEMENTS + RECALL_INDEX_STATEMENTS)
 
 
 # Version-1 preview databases predate processing diagnostics. Keep the on-disk
@@ -143,7 +153,7 @@ def migrate_schema(connection):
     """Bring a supported version-1 database to the latest additive layout."""
     validate_schema(connection)
     connection.execute('CREATE INDEX IF NOT EXISTS relations_target ON relations(target_id,kind)')
-    for statement in CLAIMS_INDEX_STATEMENTS:
+    for statement in CLAIMS_INDEX_STATEMENTS + WIKI_STATEMENTS:
         connection.execute(statement)
     present = {row[1] for row in connection.execute('PRAGMA table_info(jobs)')}
     for name, definition in JOB_DIAGNOSTIC_COLUMNS.items():

@@ -266,3 +266,21 @@ npm run check
 The isolated runtime harness runs on macOS/Linux; the ordinary CLI test matrix also covers Windows. The cloud test creates an isolated temporary Worker, two real SQLite clients, and a random test password. It verifies initial upload, space exclusion, offline deletion closure, remote save/search parity, MCP, browser consent, PKCE token exchange, refresh, and revocation. It stops its runtime and deletes its test data. Unit tests cover merge ordering, no-op replay, field conflicts, retention, and wiki ownership. These are local-runtime checks, not a claim that your account or third-party MCP app has been tested.
 
 The Python Worker imports a copy of the canonical engine in `cloud/src/bigfeels_mem/` and Cloudflare's MIT-licensed `workers-runtime-sdk` from `cloud/python_modules/` (vendored so the button's plain `wrangler deploy` needs no `uv`; refresh with `uv sync --locked && python3 build.py --vendor`). It is committed because Deploy to Cloudflare treats `cloud/` as the whole repository; run `python3 cloud/build.py` after changing the engine (CI fails if the copy is stale). Dependency environments, secrets, and local runtime state are ignored by git. Remove `.venv-workers`, `python_modules`, and `.wrangler` when no longer needed. Keep `uv.lock` and `package-lock.json` for repeatable deployments.
+
+
+## The shared wiki (Obsidian)
+
+The vault holds a wiki next to the memories: curated, interlinked markdown pages (`SCHEMA.md`, `index.md`,
+`log.md`, `entities/`, `concepts/`, ...) that every agent and the owner maintain. Agents use the
+`bigfeels_wiki_*` tools (`memory_wiki_*` over MCP); people use any markdown client through WebDAV at `/dav/`.
+The atomic memories are not files; agents compile them into pages.
+
+```
+bigfeels-mem cloud files                    # WebDAV URL, username and a password for one new login
+bigfeels-mem cloud wiki-push ~/my-wiki      # upload an existing markdown wiki (new pages only; --replace to overwrite)
+```
+
+In Obsidian, install Remotely Save, choose WebDAV, and enter the URL and login. The vault opens on the wiki.
+An agent's write must name the revision it read, so two agents cannot overwrite each other; a file client's
+write wins. Either way the last 20 versions of every page are kept. Revoke a login with
+`bigfeels-mem cloud revoke <device_id>`.
